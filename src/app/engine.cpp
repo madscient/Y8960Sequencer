@@ -26,8 +26,9 @@ PlaybackEngine::~PlaybackEngine() {
     if (stream_) SDL_DestroyAudioStream(stream_);
 }
 
-bool PlaybackEngine::open(uint32_t sampleRate, std::string& error) {
+bool PlaybackEngine::open(uint32_t sampleRate, TickRate rate, std::string& error) {
     sampleRate_ = sampleRate;
+    rate_       = rate;
     if (!chips_.open(executableDirectory(), sampleRate_, error)) return false;
     devices_ = std::make_unique<DeviceSet>(chips_);
     devices_->resetAll();
@@ -90,6 +91,7 @@ bool PlaybackEngine::playing() {
 void PlaybackEngine::setTickRate(TickRate rate) {
     std::lock_guard<std::mutex> lock(mutex_);
     rate_ = rate;
+    if (!devices_) return;          // まだ開いていない
     rebuildPlayer();
     if (loaded_) sequencer_->load(0, block_);
 }

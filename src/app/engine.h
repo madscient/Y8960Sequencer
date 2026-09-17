@@ -28,7 +28,11 @@ public:
     PlaybackEngine& operator=(const PlaybackEngine&) = delete;
 
     // エミュレータを実行ファイルのフォルダから読み、音声デバイスを開く。
-    bool open(uint32_t sampleRate, std::string& error);
+    bool open(uint32_t sampleRate, TickRate rate, std::string& error);
+
+    // ブロックごとの音量とレベルメーター。
+    void  setGain(Device device, float gain) { chips_.setGain(device, gain); }
+    float takeLevel(Device device) { return chips_.takeLevel(device); }
 
     // 鳴らすものを差し替える。演奏中なら止まる。
     void load(const SequenceBlock& block, const PcmFile* pcm);

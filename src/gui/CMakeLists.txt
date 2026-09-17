@@ -22,5 +22,5 @@ else()
     target_compile_options(imgui PRIVATE -w)
 endif()
 
-add_executable(y8960gui WIN32 main.cpp)
+add_executable(y8960gui WIN32 main.cpp levelmeter.cpp)
 target_link_libraries(y8960gui PRIVATE y8960app imgui)

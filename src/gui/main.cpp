@@ -5,6 +5,7 @@
 
 #include "block.h"
 #include "engine.h"
+#include "levelmeter.h"
 #include "pcmfile.h"
 
 #include <SDL3/SDL.h>
@@ -41,6 +42,7 @@ struct App {
     std::string status = "Open a sequence file.";
     int         repeat = 1;
     int         tick   = 3;          // kTickNames の索引
+    y8960::LevelMeter meter;
 
     // ファイル選択の答えは別のスレッドから来ることがあるので、いったん置く。
     std::mutex  pending;
@@ -169,7 +171,7 @@ int main(int argc, char** argv) {
     {
     App app;
     std::string error;
-    if (!app.engine.open(kSampleRate, error)) {
+    if (!app.engine.open(kSampleRate, static_cast<y8960::TickRate>(app.tick), error)) {
         app.status = "No sound: " + error;
     }
 
@@ -256,6 +258,10 @@ int main(int argc, char** argv) {
             if (app.haveBlock) app.engine.load(app.block, app.havePcm ? &app.pcm : nullptr);
         }
         ImGui::EndDisabled();
+
+        ImGui::Separator();
+        app.meter.update(app.engine, static_cast<float>(ImGui::GetTime()));
+        app.meter.draw();
 
         ImGui::Separator();
         ImGui::TextUnformatted(playing ? "Playing" : "Stopped");

@@ -1,4 +1,4 @@
-// y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>]
+// y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>] [--tick <0-2>]
 
 #include "block.h"
 #include "engine.h"
@@ -27,17 +27,26 @@ namespace {
 
 constexpr uint32_t kSampleRate = 48000;
 
-// ブロックの外にある値。引数で選べるようにするのはこれから（doc/plan.md）。
-constexpr y8960::TickRate kTickRate = y8960::TickRate::Hz200;
-constexpr uint8_t         kRepeat   = 1;
+// ブロックの外にある値。繰り返し回数を引数で選べるようにするのはこれから
+// （doc/plan.md）。
+constexpr uint8_t kRepeat = 1;
+
+// `--tick` の値は `MINIT` の分解能と同じ。省略時は 2。
+const y8960::TickRate kTickRates[] = {
+    y8960::TickRate::Vdp60, y8960::TickRate::Hz100, y8960::TickRate::Hz200,
+};
 
 struct Options {
     fs::path sequence;
     std::optional<fs::path> adpcm;
+    y8960::TickRate tick = y8960::TickRate::Hz200;
 };
 
 void printUsage() {
-    std::fputs("使い方: y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>]\n", stderr);
+    std::fputs("使い方: y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>]"
+               " [--tick <0-2>]\n"
+               "  --tick は演奏を進める割り込みの周期。0 が約60Hz、1 が約100Hz、"
+               "2 が約200Hz。省略時は 2\n", stderr);
 }
 
 std::vector<fs::path> commandLine(int argc, char** argv) {
@@ -66,6 +75,17 @@ bool parseOptions(const std::vector<fs::path>& args, Options& opt) {
                 return false;
             }
             opt.adpcm = args[++i];
+        } else if (a == "--tick") {
+            if (i + 1 >= args.size()) {
+                std::fputs("--tick の後に値がありません\n", stderr);
+                return false;
+            }
+            const std::string v = args[++i].u8string();
+            if (v.size() != 1 || v[0] < '0' || v[0] > '2') {
+                std::fprintf(stderr, "--tick の値は 0 から 2 です: %s\n", v.c_str());
+                return false;
+            }
+            opt.tick = kTickRates[v[0] - '0'];
         } else if (a == "--help" || a == "-h") {
             return false;
         } else if (a.size() >= 2 && a[0] == '-' && a[1] == '-') {
@@ -147,8 +167,7 @@ int main(int argc, char** argv) {
 
     {
         y8960::PlaybackEngine engine;
-        engine.setTickRate(kTickRate);
-        if (!engine.open(kSampleRate, error)) {
+        if (!engine.open(kSampleRate, opt.tick, error)) {
             std::fprintf(stderr, "音を出せません: %s\n", error.c_str());
             return 1;
         }

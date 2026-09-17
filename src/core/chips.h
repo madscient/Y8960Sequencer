@@ -1,10 +1,13 @@
 #pragma once
 // Y8960 の音源ブロック8つを、3本のエミュレータに振り分ける。
+// ブロックごとにエンジンを1つ持つ ―― 出力を別々に取り出せると、ブロックごとの
+// 音量とレベルメーターがそこから出せる。
 
 #include "block.h"
 #include "fmengine.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -40,24 +43,26 @@ public:
 
     void render(float* outL, float* outR, uint32_t samples);
 
+    // ブロックごとの音量。1.0 が素のまま。実機のデジタルミキサーのレジスタ仕様が
+    // 決まるまでの間に合わせ（doc/plan.md）。
+    void setGain(Device chip, float gain);
+    float gain(Device chip) const;
+
+    // 前に読んでからの、そのブロックの最大振幅。読むと 0 に戻る。
+    // 音声のスレッドが書き、画面のスレッドが読む。
+    float takeLevel(Device chip);
+
     // ライブラリの探す名前（拡張子と接頭辞の付かない形）。doc/plan.md の表と同じ。
     static const std::array<const char*, 3>& libraryBaseNames();
 
 private:
-    struct Route {
-        FmEngine* engine = nullptr;
-        uint32_t  id     = 0;
-    };
-
     // ライブラリはエンジンより先に宣言する。エンジンの破棄に関数ポインタが要る。
-    FmEngineLibrary libY8960_;
-    FmEngineLibrary libEpsg_;
-    FmEngineLibrary libDsa_;
-    FmEngine        engY8960_;
-    FmEngine        engEpsg_;
-    FmEngine        engDsa_;
+    std::array<FmEngineLibrary, 3> libraries_;
+    std::array<FmEngine, kDeviceCount> engines_;
+    std::array<uint32_t, kDeviceCount> chipIds_{};
+    std::array<std::atomic<float>, kDeviceCount> levels_{};
+    std::array<std::atomic<float>, kDeviceCount> gains_{};
 
-    std::array<Route, kDeviceCount> routes_{};
     std::vector<uint8_t> adpcm_;
     std::vector<float>   tmpL_;
     std::vector<float>   tmpR_;

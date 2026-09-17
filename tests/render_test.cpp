@@ -133,6 +133,28 @@ int main() {
         std::printf("adpcm silence=%.5f playing=%.5f\n", silence, sample);
         CHECK(silence < 0.001);
         CHECK(sample > 0.01);
+
+        // レベルメーターの元。鳴っているブロックだけに山が立つ。
+        // 「前に読んでから」の山なので、いったん読み捨ててから測る。
+        for (int d = 0; d < kDeviceCount; ++d) chips.takeLevel(static_cast<Device>(d));
+        rms(player2, kRate / 20);
+        const float adpcmLevel = chips.takeLevel(Device::OPL2EX2);
+        const float ssgsLevel  = chips.takeLevel(Device::SSGS);
+        std::printf("level OPL2EX2=%.4f SSGS=%.4f\n", adpcmLevel, ssgsLevel);
+        CHECK(adpcmLevel > 0.01f);
+        CHECK(ssgsLevel == 0.0f);
+        // 読むと 0 に戻る。
+        CHECK(chips.takeLevel(Device::OPL2EX2) == 0.0f);
+
+        // ブロックごとの音量。0 にすればそのブロックは出てこない。
+        chips.setGain(Device::OPL2EX2, 0.0f);
+        const double muted = rms(player2, kRate / 20);
+        CHECK(muted < 0.001);
+        CHECK(chips.takeLevel(Device::OPL2EX2) == 0.0f);
+        chips.setGain(Device::OPL2EX2, 1.0f);
+        const double back = rms(player2, kRate / 20);
+        std::printf("muted=%.5f back=%.5f\n", muted, back);
+        CHECK(back > 0.01);
     }
 
     return check::finish("render_test");
