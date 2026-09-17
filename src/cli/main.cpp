@@ -189,6 +189,7 @@ int main(int argc, char** argv) {
 
     y8960::DeviceSet devices(chips);
     devices.resetAll();
+    devices.setAdpcmDirectory(directory.data());
     y8960::Sequencer sequencer(devices, kTickRate);
     sequencer.load(0, block);
     y8960::Player player(chips, sequencer, kTickRate, kSampleRate);

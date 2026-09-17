@@ -19,4 +19,8 @@ void DeviceSet::resetAll() {
     for (auto& d : devices_) d->reset();
 }
 
+void DeviceSet::setAdpcmDirectory(const AdpcmVoiceFile* directory) {
+    for (auto& d : devices_) d->setAdpcmDirectory(directory);
+}
+
 } // namespace y8960

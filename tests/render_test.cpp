@@ -83,8 +83,20 @@ int main() {
     addTrack(block, 3, Device::DCSG1,   0, plain);
     addTrack(block, 4, Device::SCC,     0, sccPart);
 
+    // ADPCM。ボイスファイル 0 を 1KB ぶん置き、その速さで鳴らす。中身は
+    // ADPCM-B として解釈されれば何かの波形になるだけの並び。
+    block.adpcm[0].present      = true;
+    block.adpcm[0].startPage    = 0;
+    block.adpcm[0].pages        = 4;
+    block.adpcm[0].sampleRateHz = 8000;
+    std::vector<uint8_t> sample(4 * 256);
+    for (size_t i = 0; i < sample.size(); ++i) sample[i] = static_cast<uint8_t>((i % 8 < 4) ? 0x33 : 0xCC);
+    chips.loadAdpcmMemory(sample);
+    addTrack(block, 5, Device::OPL2EX2, kChannelAdpcm, {0x82, 0x00, 0x00, 48, 0x04, 48});
+
     DeviceSet devices(chips);
     devices.resetAll();
+    devices.setAdpcmDirectory(block.adpcm.data());
     Sequencer seq(devices, TickRate::Hz200);
     seq.load(0, block);
     Player player(chips, seq, TickRate::Hz200, kRate);
@@ -102,6 +114,26 @@ int main() {
     const double after = rms(player, kRate / 10);
     std::printf("after=%.5f\n", after);
     CHECK(after < playing * 0.25);
+
+    // ADPCM チャンネルだけのブロック。ほかの音源が鳴っていないところで見る。
+    {
+        SequenceBlock only;
+        only.version = 1;
+        only.adpcm = block.adpcm;
+        addTrack(only, 0, Device::OPL2EX2, kChannelAdpcm, {0x82, 0x00, 0x00, 48});
+
+        devices.resetAll();
+        devices.setAdpcmDirectory(only.adpcm.data());
+        Sequencer seq2(devices, TickRate::Hz200);
+        seq2.load(0, only);
+        Player player2(chips, seq2, TickRate::Hz200, kRate);
+        const double silence = rms(player2, kRate / 10);
+        seq2.start(0, 1);
+        const double sample = rms(player2, kRate / 4);
+        std::printf("adpcm silence=%.5f playing=%.5f\n", silence, sample);
+        CHECK(silence < 0.001);
+        CHECK(sample > 0.01);
+    }
 
     return check::finish("render_test");
 }

@@ -43,6 +43,9 @@ public:
 
     virtual void ssgEnv(SsgEnv kind, uint8_t ch, uint8_t value) { (void)kind; (void)ch; (void)value; }
 
+    // ADPCM のボイスファイルの表。OPL2EX だけが使う。鳴らし始める前に渡すこと。
+    virtual void setAdpcmDirectory(const AdpcmVoiceFile* directory) { (void)directory; }
+
     // `E0`。CY が立つ（= false）のは、そのデバイスに無いレジスタ番号のとき。
     virtual bool regRead(uint8_t reg, uint8_t& value) { (void)reg; (void)value; return false; }
     virtual bool regWrite(uint8_t reg, uint8_t value) { (void)reg; (void)value; return false; }
@@ -56,6 +59,8 @@ public:
 
     SoundDevice& operator[](Device d) { return *devices_[static_cast<size_t>(d)]; }
     void resetAll();
+    // 表そのものは呼び出し側が持ち続けること。
+    void setAdpcmDirectory(const AdpcmVoiceFile* directory);
 
 private:
     std::array<std::unique_ptr<SoundDevice>, kDeviceCount> devices_;
