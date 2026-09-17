@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(Y8960_BUILD_CLI   "Build the y8960player command" ON)
+option(Y8960_BUILD_GUI   "Build the y8960gui application" ON)
 option(Y8960_BUILD_TESTS "Build the tests" ON)
 
 # 開発用。ビルド済みのエミュレータのライブラリがあるフォルダを渡すと、実行ファイルの
@@ -26,7 +27,7 @@ endif()
 
 add_subdirectory(src/core)
 
-if(Y8960_BUILD_CLI)
+if(Y8960_BUILD_CLI OR Y8960_BUILD_GUI)
     include(FetchContent)
     FetchContent_Declare(SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -37,7 +38,15 @@ if(Y8960_BUILD_CLI)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(SDL3)
+    add_subdirectory(src/app)
+endif()
+
+if(Y8960_BUILD_CLI)
     add_subdirectory(src/cli)
+endif()
+
+if(Y8960_BUILD_GUI)
+    add_subdirectory(src/gui)
 endif()
 
 if(Y8960_EMULATOR_DIR)
