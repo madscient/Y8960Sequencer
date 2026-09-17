@@ -4,7 +4,12 @@
 #include "chips.h"
 #include "pcmfile.h"
 #include "platform.h"
+#include "player.h"
+#include "sequencer.h"
 
+#include <SDL3/SDL.h>
+
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -25,6 +30,10 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr uint32_t kSampleRate = 48000;
+
+// ブロックの外にある値。引数で選べるようにするのはこれから（doc/plan.md）。
+constexpr y8960::TickRate kTickRate = y8960::TickRate::Hz200;
+constexpr uint8_t         kRepeat   = 1;
 
 struct Options {
     fs::path sequence;
@@ -88,6 +97,37 @@ bool readFile(const fs::path& path, std::vector<uint8_t>& out) {
     return !f.bad();
 }
 
+// 音声の取り出しは SDL のスレッドから来る。プレイヤーに触るのはそこだけにして、
+// 主スレッドは終わったかどうかだけを見る。
+struct AudioSource {
+    y8960::Player*        player = nullptr;
+    std::atomic<bool>     done{false};
+    std::vector<float>    left;
+    std::vector<float>    right;
+    std::vector<float>    interleaved;
+};
+
+void SDLCALL feedAudio(void* userdata, SDL_AudioStream* stream, int additional, int /*total*/) {
+    auto* src = static_cast<AudioSource*>(userdata);
+    if (additional <= 0) return;
+    const int frames = additional / static_cast<int>(sizeof(float) * 2);
+    if (frames <= 0) return;
+
+    const size_t n = static_cast<size_t>(frames);
+    if (src->left.size() < n) {
+        src->left.resize(n);
+        src->right.resize(n);
+        src->interleaved.resize(n * 2);
+    }
+    src->player->render(src->left.data(), src->right.data(), static_cast<uint32_t>(n));
+    for (size_t i = 0; i < n; ++i) {
+        src->interleaved[i * 2]     = src->left[i];
+        src->interleaved[i * 2 + 1] = src->right[i];
+    }
+    SDL_PutAudioStreamData(stream, src->interleaved.data(), frames * static_cast<int>(sizeof(float) * 2));
+    if (src->player->finished()) src->done.store(true);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -147,6 +187,40 @@ int main(int argc, char** argv) {
                 opt.sequence.u8string().c_str(), static_cast<unsigned>(block.version),
                 assigned, voiceFiles);
 
-    std::fputs("再生部はまだ実装されていません\n", stderr);
-    return 2;
+    y8960::DeviceSet devices(chips);
+    devices.resetAll();
+    y8960::Sequencer sequencer(devices, kTickRate);
+    sequencer.load(0, block);
+    y8960::Player player(chips, sequencer, kTickRate, kSampleRate);
+
+    if (!SDL_Init(SDL_INIT_AUDIO)) {
+        std::fprintf(stderr, "音声を初期化できません: %s\n", SDL_GetError());
+        return 1;
+    }
+    AudioSource source;
+    source.player = &player;
+    SDL_AudioSpec spec{};
+    spec.format   = SDL_AUDIO_F32;
+    spec.channels = 2;
+    spec.freq     = static_cast<int>(kSampleRate);
+    SDL_AudioStream* stream =
+        SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, feedAudio, &source);
+    if (!stream) {
+        std::fprintf(stderr, "音声デバイスを開けません: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+
+    sequencer.start(0, kRepeat);
+    SDL_ResumeAudioStreamDevice(stream);
+    while (!source.done.load()) {
+        // 作り置きを鳴らし終えるまで待つ。
+        if (SDL_GetAudioStreamQueued(stream) == 0 && player.finished()) break;
+        SDL_Delay(20);
+    }
+    SDL_Delay(100);
+
+    SDL_DestroyAudioStream(stream);
+    SDL_Quit();
+    return 0;
 }
