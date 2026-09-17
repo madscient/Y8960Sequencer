@@ -1,11 +1,13 @@
 #pragma once
-// 音源ブロックごとのレベルメーター。見た目は FITOM_X の LevelMeterPanel に
-// 合わせる ―― LED のセグメントを積んだバー、下半分が緑・上が黄と赤、消えて
-// いるセグメントも暗い色で塗る、ピークホールドの発光、バーの下にラベル。
+// 音源ブロックごと・チャンネルごとのレベルメーター。見た目は FITOM_X の
+// LevelMeterPanel に合わせる ―― LED のセグメントを積んだバー、下が緑・上が黄と
+// 赤、消えているセグメントも暗い色、ピークホールドの発光、バーの下にラベル。
+// ブロックを1つの帯として縦に積む。
 //
-// FITOM_X は音を合成しないのでノートオンとベロシティからバーを作るが、
-// こちらは実際の出力の最大振幅を使う。落ち方だけはこちらで作る。
+// エミュレータから取れるのはチップ単位の音だけなので、バーはキーオンとその
+// ときの音量から作り、落ち方はここで作る（FITOM_X と同じ）。
 
+#include "activity.h"
 #include "block.h"
 
 #include <array>
@@ -16,18 +18,33 @@ class PlaybackEngine;
 
 class LevelMeter {
 public:
-    // 音声から取った山を読み、時間を進める。now は秒。
-    void update(PlaybackEngine& engine, float now);
+    // 既定では、読み込んだシーケンスが使うチャンネルだけを出す。showAll を立てると
+    // 8ブロックの全チャンネルを出す。
+    void update(const PlaybackEngine& engine, const SequenceBlock& block, bool haveBlock,
+                bool showAll, float now);
     void draw() const;
 
 private:
     struct Bar {
-        float level     = 0.0f;
-        float peak      = 0.0f;
-        float peakStart = -1.0f;
-        float lastNow   = 0.0f;
+        float    level      = 0.0f;
+        float    decayFrom  = 0.0f;
+        float    decayStart = -1.0f;
+        float    decayDur   = 0.0f;
+        float    peak       = 0.0f;
+        float    peakStart  = -1.0f;
+        bool     wasSounding = false;
+        uint32_t lastSeq     = 0;
     };
-    std::array<Bar, kDeviceCount> bars_{};
+
+    struct Entry {
+        Device      device;
+        uint8_t     channel;
+        const char* label;
+    };
+
+    std::array<std::array<Bar, kActivitySlots>, kDeviceCount> bars_{};
+    std::array<bool, kDeviceCount> bandUsed_{};
+    std::array<std::array<bool, kActivitySlots>, kDeviceCount> slotUsed_{};
     float now_ = 0.0f;
 };
 

@@ -174,5 +174,52 @@ int main() {
         CHECK((enable.back() & 0x02) != 0 || enable.size() >= 2);
     }
 
+    // チャンネルごとの発音の様子（レベルメーターの元）。
+    {
+        RecordingBus bus;
+        DeviceSet devices(bus);
+        devices.resetAll();
+        ChannelActivity activity;
+        Sequencer seq(devices, TickRate::Vdp60);
+        seq.setActivity(&activity);
+        const SequenceBlock block = seqtest::oneTrack(Device::SSGS, 2, {0x00, 48, 0x0C, 48});
+        seq.load(0, block);
+        bus.tick = 0;
+        seq.start(0, 1);
+
+        const auto& slot = activity.read(Device::SSGS, 2);
+        CHECK(slot.sounding.load());
+        CHECK(slot.level.load() == kDefaultVol);        // V8 を 0-127 で
+        CHECK(slot.noteOnSeq.load() == 1);
+        CHECK(!activity.read(Device::SSGS, 0).sounding.load());
+
+        run(seq, bus, 40);                              // 休符まで進める
+        CHECK(!slot.sounding.load());
+    }
+
+    // リズムの打撃は、楽器ごとの枠に分かれて立ち上がる。
+    {
+        RecordingBus bus;
+        DeviceSet devices(bus);
+        devices.resetAll();
+        ChannelActivity activity;
+        Sequencer seq(devices, TickRate::Vdp60);
+        seq.setActivity(&activity);
+        // A9（V=4）、AA（@A=15）、A8（バスドラムにアクセント）、C8（BD と SD を叩く）
+        const SequenceBlock block = seqtest::oneTrack(Device::OPLLEX1, kChannelRhythm,
+            {0xA9, 4, 0xAA, 15, 0xA8, 0x10, 0xC8, 0x18, 48});
+        seq.load(0, block);
+        bus.tick = 0;
+        seq.start(0, 1);
+
+        const auto& bd = activity.read(Device::OPLLEX1, kRhythmSlotFirst);      // バスドラム
+        const auto& sd = activity.read(Device::OPLLEX1, kRhythmSlotFirst + 1);  // スネア
+        const auto& tom = activity.read(Device::OPLLEX1, kRhythmSlotFirst + 2);
+        CHECK(bd.noteOnSeq.load() == 1);
+        CHECK(sd.noteOnSeq.load() == 1);
+        CHECK(tom.noteOnSeq.load() == 0);               // 叩いていない楽器は動かない
+        CHECK(bd.level.load() > sd.level.load());       // アクセントの付いたほうが大きい
+    }
+
     return check::finish("sequencer_test");
 }

@@ -53,7 +53,9 @@ bool PlaybackEngine::open(uint32_t sampleRate, TickRate rate, std::string& error
 
 void PlaybackEngine::rebuildPlayer() {
     sequencer_ = std::make_unique<Sequencer>(*devices_, rate_);
+    sequencer_->setActivity(&activity_);
     player_    = std::make_unique<Player>(chips_, *sequencer_, rate_, sampleRate_);
+    activity_.allOff();
 }
 
 void PlaybackEngine::load(const SequenceBlock& block, const PcmFile* pcm) {

@@ -2,6 +2,7 @@
 // 音声出力と再生の制御。CLI と GUI が共有する。
 // コアは SDL を知らないので、SDL に触るのはこの層だけ。
 
+#include "activity.h"
 #include "block.h"
 #include "chips.h"
 #include "device.h"
@@ -33,6 +34,8 @@ public:
     // ブロックごとの音量とレベルメーター。
     void  setGain(Device device, float gain) { chips_.setGain(device, gain); }
     float takeLevel(Device device) { return chips_.takeLevel(device); }
+    // チャンネルごとの発音の様子。画面のスレッドから読んでよい。
+    const ChannelActivity& activity() const { return activity_; }
 
     // 鳴らすものを差し替える。演奏中なら止まる。
     void load(const SequenceBlock& block, const PcmFile* pcm);
@@ -57,6 +60,7 @@ private:
     std::unique_ptr<Player>    player_;
     SDL_AudioStream* stream_ = nullptr;
 
+    ChannelActivity activity_;
     uint32_t sampleRate_ = 48000;
     TickRate rate_       = TickRate::Hz200;
     bool     loaded_     = false;

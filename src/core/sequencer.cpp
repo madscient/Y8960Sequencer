@@ -92,6 +92,14 @@ void Sequencer::start(int sequence, uint8_t repeat) {
                                                        &s.block->voices[kVoiceSetSize]);
     }
 
+    // リズムの V と @A は、リズムモードに入るときに既定へ戻る（ROM の RHYDEF）。
+    // 繰り返しの頭では戻らない。
+    for (Track& t : s.tracks) {
+        t.rhythmLevel = 8;
+        t.rhythmAccentLevel = 15;
+    }
+    if (activity_) activity_->allOff();
+
     markClear(s);
     rewind(s);
     s.state = State::Playing;
@@ -103,6 +111,7 @@ void Sequencer::stop(int sequence) {
     if (s.state == State::Idle) return;
     s.state = State::Idle;
     seqOff(s);
+    if (activity_) activity_->allOff();
 }
 
 bool Sequencer::finished() const {
@@ -320,8 +329,8 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             break;
         }
         case kEvRhyAccent: t.rhythmAccent = arg; break;
-        case kEvRhyVol:    device(t).rhythmVolume(false, arg); break;
-        case kEvRhyAccVol: device(t).rhythmVolume(true, arg); break;
+        case kEvRhyVol:    t.rhythmLevel = arg;       device(t).rhythmVolume(false, arg); break;
+        case kEvRhyAccVol: t.rhythmAccentLevel = arg; device(t).rhythmVolume(true, arg); break;
         case kEvSsgShape:  device(t).ssgEnv(SsgEnv::Shape, t.channel, arg); break;
         case kEvSsgPan:    device(t).ssgEnv(SsgEnv::Pan, t.channel, arg); break;
         default: break;
@@ -334,7 +343,10 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             const uint8_t instruments = readByte(t);
             t.wait = readLength(t);
             t.gate = 0;
-            if (!s.mute) device(t).rhythmStrike(instruments, t.rhythmAccent);
+            if (!s.mute) {
+                device(t).rhythmStrike(instruments, t.rhythmAccent);
+                reportStrike(s, t, instruments);
+            }
             return t.wait != 0;
         }
         const uint8_t number = readByte(t);
@@ -431,7 +443,10 @@ bool Sequencer::note(Sequence& s, Track& t, int index, uint8_t number) {
     if (!carry) keyOff(t);
     t.note = number;
     repitch(t);
-    if (!carry && !s.mute) device(t).keyOn(t.channel);
+    if (!carry && !s.mute) {
+        device(t).keyOn(t.channel);
+        if (activity_) activity_->noteOn(t.device, t.channel, t.outVolume);
+    }
     return t.wait != 0;
 }
 
@@ -514,6 +529,20 @@ void Sequencer::repitch(Track& t) {
 void Sequencer::keyOff(Track& t) {
     t.note = kNoNote;            // タイでつなぐ相手も、ベンドの相手も無くなる
     device(t).keyOff(t.channel);
+    if (activity_) activity_->noteOff(t.device, t.channel);
+}
+
+// リズムの打撃を、楽器ごとの枠に分けて記録する。叩いた楽器だけが立ち上がる。
+void Sequencer::reportStrike(Sequence& s, const Track& t, uint8_t instruments) {
+    if (!activity_) return;
+    constexpr uint8_t kBits[5] = {0x10, 0x08, 0x04, 0x02, 0x01};   // BD SD TOM CYM HH
+    for (uint8_t i = 0; i < 5; ++i) {
+        if (!(instruments & kBits[i])) continue;
+        const uint8_t level15 = (t.rhythmAccent & kBits[i]) ? t.rhythmAccentLevel : t.rhythmLevel;
+        // 0-15 を 0-127 に伸ばし、シーケンスの音量を掛ける。
+        const uint8_t loud = mulVol(static_cast<uint8_t>(level15 * 127 / 15), s.mute ? 0 : s.current);
+        activity_->noteOn(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i), loud);
+    }
 }
 
 // トラックの音量にシーケンスの音量を掛ける。リズムチャンネルは打撃ごとに自分の
@@ -521,7 +550,8 @@ void Sequencer::keyOff(Track& t) {
 void Sequencer::volumeOut(Sequence& s, Track& t) {
     const uint8_t own = (t.channel == kChannelRhythm) ? kMixerMax : t.vol;
     const uint8_t scale = s.mute ? 0 : s.current;
-    device(t).setVolume(t.channel, mulVol(own, scale));
+    t.outVolume = mulVol(own, scale);
+    device(t).setVolume(t.channel, t.outVolume);
 }
 
 // 距離は、その2バイトを読み終えた位置から数える。

@@ -42,6 +42,7 @@ struct App {
     std::string status = "Open a sequence file.";
     int         repeat = 1;
     int         tick   = 3;          // kTickNames の索引
+    bool        showAllChannels = false;
     y8960::LevelMeter meter;
 
     // ファイル選択の答えは別のスレッドから来ることがあるので、いったん置く。
@@ -260,12 +261,14 @@ int main(int argc, char** argv) {
         ImGui::EndDisabled();
 
         ImGui::Separator();
-        app.meter.update(app.engine, static_cast<float>(ImGui::GetTime()));
-        app.meter.draw();
-
-        ImGui::Separator();
         ImGui::TextUnformatted(playing ? "Playing" : "Stopped");
         ImGui::TextUnformatted(app.status.c_str());
+
+        ImGui::Checkbox("All channels", &app.showAllChannels);
+        app.meter.update(app.engine, app.block, app.haveBlock, app.showAllChannels,
+                         static_cast<float>(ImGui::GetTime()));
+        app.meter.draw();
+
         ImGui::Separator();
         drawTracks(app);
 

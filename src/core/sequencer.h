@@ -5,6 +5,7 @@
 // シーケンスは4本あり、割り込みごとに自分の accumulator に自分の増分を足す。
 // だから1つの割り込みで、4本が別々のテンポで進む。
 
+#include "activity.h"
 #include "block.h"
 #include "device.h"
 #include "player.h"
@@ -39,6 +40,9 @@ public:
     // MTUNE。1/64 半音。
     void setTune(int16_t steps) { tune_ = steps; }
 
+    // 画面のレベルメーターに渡す、チャンネルごとの発音の様子。
+    void setActivity(ChannelActivity* activity) { activity_ = activity; }
+
     void interrupt() override;
     bool finished() const override;
 
@@ -57,6 +61,9 @@ private:
         uint8_t  voice = kDefaultVoice;
         uint8_t  quant = kQuantMax;
         uint8_t  rhythmAccent = 0;
+        uint8_t  rhythmLevel  = 8;    // リズムの V。レベルメーターのために持つ
+        uint8_t  rhythmAccentLevel = 15;   // 同じく @A
+        uint8_t  outVolume   = 0;     // 最後にデバイスへ出した音量 0-127
         uint8_t  loopSp = 0;
         std::array<uint8_t, kLoopDepth> loop{};
         std::array<uint8_t, kMarkCount> mark{};
@@ -110,6 +117,7 @@ private:
     int16_t bendOffset(const Track& t) const;
     void keyOff(Track& t);
     void volumeOut(Sequence& s, Track& t);
+    void reportStrike(Sequence& s, const Track& t, uint8_t instruments);
     void jump(Track& t, int16_t distance);
     bool markHit(Track& t, uint8_t ordinal, uint8_t at);
     bool daCapo(Sequence& s, Track& t);
@@ -117,9 +125,10 @@ private:
 
     SoundDevice& device(const Track& t) { return devices_[t.device]; }
 
-    DeviceSet& devices_;
-    TickRate   rate_;
-    int16_t    tune_ = 0;
+    DeviceSet&       devices_;
+    TickRate         rate_;
+    int16_t          tune_ = 0;
+    ChannelActivity* activity_ = nullptr;
     std::array<Sequence, kSequenceCount> sequences_{};
 };
 
