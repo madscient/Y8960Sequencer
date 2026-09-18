@@ -45,13 +45,13 @@ bool loads(const Bytes& b) {
 int main() {
     // 設定とダンプの両方を持つファイル
     {
-        const Bytes b = pcmFile(0x03, {setting(1, 0, 2, 8000), setting(31, 2, 1, 16000)}, 3);
+        const Bytes b = pcmFile(0x03, {setting(1, 0, 2, 8000), setting(63, 2, 1, 16000)}, 3);
         PcmFile f;
         std::string err;
         CHECK(parsePcmFile(b, f, err));
         CHECK(f.hasSettings && f.hasDump);
         CHECK(f.settings[1].present && f.settings[1].pages == 2 && f.settings[1].sampleRateHz == 8000);
-        CHECK(f.settings[31].present && f.settings[31].startPage == 2);
+        CHECK(f.settings[63].present && f.settings[63].startPage == 2);
         CHECK(!f.settings[0].present);
         CHECK(f.dump.size() == 3 * kAdpcmPageSize);
         CHECK(f.dump[kAdpcmPageSize] == 0);
@@ -84,7 +84,8 @@ int main() {
     CHECK(!loads(pcmFile(0x01, {setting(0, 0, 1, 8000)}, 0, 2)));      // 版が違う
     CHECK(!loads(pcmFile(0x05, {}, 0)));                               // 知らない中身のビット
     CHECK(!loads(pcmFile(0x02, {setting(0, 0, 1, 8000)}, 0)));         // ビットと件数が合わない
-    CHECK(!loads(pcmFile(0x01, {setting(32, 0, 1, 8000)}, 0)));        // 番号が範囲外
+    CHECK(loads(pcmFile(0x01, {setting(63, 0, 1, 8000)}, 0)));         // 番号の上端
+    CHECK(!loads(pcmFile(0x01, {setting(64, 0, 1, 8000)}, 0)));        // 番号が範囲外
     CHECK(!loads(pcmFile(0x01, {setting(0, 0, 0, 8000)}, 0)));         // ページ数 0
     CHECK(!loads(pcmFile(0x01, {setting(0, 1023, 2, 8000)}, 0)));      // 1024 ページを超える
     CHECK(!loads(pcmFile(0x01, {setting(0, 0, 1, 1799)}, 0)));         // 周波数が低すぎる

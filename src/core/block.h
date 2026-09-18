@@ -27,7 +27,7 @@ constexpr int kRhythmVoices  = 3;      // 索引 32-34。OPL2EX のリズムモ�
 constexpr int kVoiceSlots    = kVoiceSetSize + kRhythmVoices;
 constexpr int kVoiceRecSize  = 32;
 constexpr int kMaxTrackBytes = 2048;   // 終端の FF を含む
-constexpr int kAdpcmFiles    = 32;     // ボイスファイル番号 0-31
+constexpr int kAdpcmFiles    = 64;     // ボイスファイル番号 0-63
 constexpr uint16_t kAdpcmPages = 1024; // ADPCM メモリ 256KB を 256 バイトで割った数
 
 constexpr uint8_t kChannelAdpcm  = 9;

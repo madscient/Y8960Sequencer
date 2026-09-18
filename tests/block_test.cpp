@@ -136,19 +136,21 @@ int main() {
 
     // ADPCM のボイスファイルの控え（チャンク 03）
     {
-        const Bytes b = block({{0x03, Bytes{5, 0x10, 0x00, 0x04, 0x00, 0x40, 0x1F}}});
+        const Bytes b = block({{0x03, Bytes{5, 0x10, 0x00, 0x04, 0x00, 0x40, 0x1F}},
+                               {0x03, Bytes{63, 0x00, 0x00, 0x01, 0x00, 0x40, 0x1F}}});
         SequenceBlock s;
         std::string err;
         CHECK(load(b, s, err));
         CHECK(s.adpcm[5].present);
         CHECK(s.adpcm[5].startPage == 16 && s.adpcm[5].pages == 4 && s.adpcm[5].sampleRateHz == 8000);
+        CHECK(s.adpcm[63].present);           // 番号は 0-63
         CHECK(!s.adpcm[0].present);
     }
 
     // 壊れたチャンク 03 は、その項目だけ捨ててブロックは読む
     {
         const std::initializer_list<Bytes> bad = {
-            Bytes{32, 0, 0, 1, 0, 0x40, 0x1F},           // 番号が範囲外
+            Bytes{64, 0, 0, 1, 0, 0x40, 0x1F},           // 番号が範囲外
             Bytes{0, 0, 0, 0, 0, 0x40, 0x1F},            // ページ数 0
             Bytes{0, 0x00, 0x04, 0x01, 0x00, 0x40, 0x1F},// 1024 ページを超える
             Bytes{0, 0, 0, 1, 0, 0x07, 0x07},            // 1800Hz 未満

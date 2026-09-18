@@ -14,7 +14,7 @@ constexpr uint8_t kHasSettings = 0x01;
 constexpr uint8_t kHasDump     = 0x02;
 
 constexpr size_t   kSettingSize = 7;
-constexpr uint8_t  kMaxSettings = 32;
+constexpr uint8_t  kMaxSettings = kAdpcmFiles;
 constexpr uint16_t kAdpcmRateMin = 1800;
 constexpr uint16_t kAdpcmRateMax = 16000;
 
