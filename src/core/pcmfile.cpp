@@ -28,11 +28,11 @@ bool parsePcmFile(const std::vector<uint8_t>& file, PcmFile& out, std::string& e
     out = PcmFile{};
 
     if (file.size() < kHeaderSize || std::memcmp(file.data(), kSignature, sizeof kSignature) != 0) {
-        error = "Y8PC の ADPCM ファイルではありません";
+        error = "not a Y8PC ADPCM file";
         return false;
     }
     if (file[4] != kVersion) {
-        error = "ファイルの版 " + std::to_string(file[4]) + " は読めません";
+        error = "unsupported file version " + std::to_string(file[4]);
         return false;
     }
     const uint8_t content = file[5];
@@ -40,7 +40,7 @@ bool parsePcmFile(const std::vector<uint8_t>& file, PcmFile& out, std::string& e
     // （pcmfile.md「版と、知らないものに出会ったとき」）。立っていれば別の形の
     // ファイルなので読まない。
     if (content & ~(kHasSettings | kHasDump)) {
-        error = "ヘッダの中身のビットに知らないものがあります";
+        error = "unknown content bits in the header";
         return false;
     }
     out.hasSettings = (content & kHasSettings) != 0;
@@ -49,21 +49,21 @@ bool parsePcmFile(const std::vector<uint8_t>& file, PcmFile& out, std::string& e
     const uint8_t  count = file[6];
     const uint16_t pages = readLe16(file.data() + 7);
     if (count > kMaxSettings) {
-        error = "設定の件数 " + std::to_string(count) + " が 32 を超えています";
+        error = "setting count " + std::to_string(count) + " exceeds " + std::to_string(kMaxSettings);
         return false;
     }
     if (pages > kAdpcmPages) {
-        error = "ダンプのページ数 " + std::to_string(pages) + " が 1024 を超えています";
+        error = "dump page count " + std::to_string(pages) + " exceeds " + std::to_string(kAdpcmPages);
         return false;
     }
     if ((!out.hasSettings && count != 0) || (!out.hasDump && pages != 0)) {
-        error = "ヘッダの中身のビットと、件数・ページ数が合いません";
+        error = "content bits do not match the setting and page counts";
         return false;
     }
 
     const size_t need = kHeaderSize + kSettingSize * count + kAdpcmPageSize * pages;
     if (file.size() < need) {
-        error = "ファイルがヘッダの言う長さ " + std::to_string(need) + " バイトより短い";
+        error = "file is shorter than the " + std::to_string(need) + " bytes the header says";
         return false;
     }
 
@@ -73,8 +73,8 @@ bool parsePcmFile(const std::vector<uint8_t>& file, PcmFile& out, std::string& e
         const uint8_t* p = file.data() + kHeaderSize + kSettingSize * i;
         const uint8_t  no = p[0];
         if (no >= kAdpcmFiles) {
-            error = "設定 " + std::to_string(i) + " のボイスファイル番号 " +
-                    std::to_string(no) + " が範囲外です";
+            error = "setting " + std::to_string(i) + ": voice file number " +
+                    std::to_string(no) + " is out of range";
             return false;
         }
         AdpcmVoiceFile v;
@@ -83,12 +83,12 @@ bool parsePcmFile(const std::vector<uint8_t>& file, PcmFile& out, std::string& e
         v.pages        = readLe16(p + 3);
         v.sampleRateHz = readLe16(p + 5);
         if (v.pages == 0 || static_cast<uint32_t>(v.startPage) + v.pages > kAdpcmPages) {
-            error = "ボイスファイル " + std::to_string(no) + " の範囲が ADPCM メモリに収まりません";
+            error = "voice file " + std::to_string(no) + " does not fit in the ADPCM memory";
             return false;
         }
         if (v.sampleRateHz < kAdpcmRateMin || v.sampleRateHz > kAdpcmRateMax) {
-            error = "ボイスファイル " + std::to_string(no) + " のサンプリング周波数 " +
-                    std::to_string(v.sampleRateHz) + "Hz が範囲外です";
+            error = "voice file " + std::to_string(no) + ": sampling rate " +
+                    std::to_string(v.sampleRateHz) + "Hz is out of range";
             return false;
         }
         settings[no] = v;   // 同じ番号が2度あれば後のほうが残る

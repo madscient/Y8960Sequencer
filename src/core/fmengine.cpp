@@ -8,7 +8,7 @@ template <typename Fn>
 bool bind(const DynamicLibrary& lib, const char* name, Fn& out, std::string& error) {
     void* p = lib.symbol(name);
     if (!p) {
-        error = std::string(name) + " がありません";
+        error = std::string("missing ") + name;
         return false;
     }
     out = reinterpret_cast<Fn>(p);
@@ -38,7 +38,7 @@ bool FmEngine::create(const FmEngineLibrary& lib, uint32_t sampleRate, std::stri
     lib_ = &lib;
     handle_ = lib.create(sampleRate);
     if (!handle_) {
-        error = "エンジンを作れません";
+        error = "cannot create an engine";
         return false;
     }
     return true;
@@ -47,7 +47,7 @@ bool FmEngine::create(const FmEngineLibrary& lib, uint32_t sampleRate, std::stri
 bool FmEngine::addChip(const char* name, uint32_t clock, uint32_t& outId, std::string& error) {
     const int32_t r = lib_->addChip(handle_, name, clock, &outId);
     if (r != kFmOk) {
-        error = std::string("チップ ") + name + " を追加できません (" + std::to_string(r) + ")";
+        error = std::string("cannot add chip ") + name + " (" + std::to_string(r) + ")";
         return false;
     }
     return true;

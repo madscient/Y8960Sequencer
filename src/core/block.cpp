@@ -80,61 +80,61 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
     out = SequenceBlock{};
 
     if (size < kHeaderSize || !hasSignature(data, size)) {
-        error = "Y8SQ ヘッダがありません";
+        error = "no Y8SQ header";
         return false;
     }
     out.version = data[4];
     if (out.version > kReaderVersion) {
-        error = "ブロックの版 " + std::to_string(out.version) + " はこのプレイヤーより新しいため読めません";
+        error = "block version " + std::to_string(out.version) + " is newer than this player";
         return false;
     }
     const size_t blockSize = readLe16(data + 5);
     if (blockSize < kHeaderSize) {
-        error = "ヘッダのブロック長 " + std::to_string(blockSize) + " がヘッダより短い";
+        error = "block length " + std::to_string(blockSize) + " is shorter than the header";
         return false;
     }
     if (blockSize > size) {
-        error = "ヘッダのブロック長 " + std::to_string(blockSize) + " がファイルの残り " +
-                std::to_string(size) + " バイトを超えています";
+        error = "block length " + std::to_string(blockSize) + " exceeds the " +
+                std::to_string(size) + " bytes left in the file";
         return false;
     }
 
     size_t pos = kHeaderSize;
     while (pos < blockSize) {
         if (blockSize - pos < 3) {
-            error = "オフセット " + std::to_string(pos) + " のチャンク見出しが途中で切れています";
+            error = "chunk header at offset " + std::to_string(pos) + " is cut short";
             return false;
         }
         const uint8_t type = data[pos];
         const size_t  len  = readLe16(data + pos + 1);
         const size_t  body = pos + 3;
         if (len > blockSize - body) {
-            error = "オフセット " + std::to_string(pos) + " のチャンクがブロックの終わりを超えています";
+            error = "chunk at offset " + std::to_string(pos) + " runs past the end of the block";
             return false;
         }
         const uint8_t* p = data + body;
 
         if (type == kChunkTrack) {
             if (len < kTrackHeadSize + 1 || len > kTrackHeadSize + kMaxTrackBytes) {
-                error = "トラックチャンクの長さ " + std::to_string(len) + " が範囲外です";
+                error = "track chunk length " + std::to_string(len) + " is out of range";
                 return false;
             }
             const uint8_t trackNo = p[0];
             const uint8_t dev     = p[1];
             const uint8_t ch      = p[2];
             if (trackNo >= kTrackCount) {
-                error = "トラック番号 " + std::to_string(trackNo) + " が範囲外です";
+                error = "track number " + std::to_string(trackNo) + " is out of range";
                 return false;
             }
             if (dev >= kDeviceCount) {
-                error = "トラック " + std::to_string(trackNo) + " のデバイス番号 " +
-                        std::to_string(dev) + " が範囲外です";
+                error = "track " + std::to_string(trackNo) + ": device number " +
+                        std::to_string(dev) + " is out of range";
                 return false;
             }
             const Device device = static_cast<Device>(dev);
             if (!channelInRange(device, ch)) {
-                error = "トラック " + std::to_string(trackNo) + " のチャンネル " +
-                        std::to_string(ch) + " はデバイス " + std::to_string(dev) + " にありません";
+                error = "track " + std::to_string(trackNo) + ": device " + std::to_string(dev) +
+                        " has no channel " + std::to_string(ch);
                 return false;
             }
             TrackData& t = out.tracks[trackNo];
@@ -144,12 +144,12 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
             t.events.assign(p + kTrackHeadSize, p + len);
         } else if (type == kChunkFmVoice || type == kChunkSccWave) {
             if (len != 1 + kVoiceRecSize) {
-                error = "音色チャンクの長さ " + std::to_string(len) + " が 33 ではありません";
+                error = "voice chunk length " + std::to_string(len) + " is not 33";
                 return false;
             }
             const uint8_t index = p[0];
             if (index >= kVoiceSlots) {
-                error = "音色の索引 " + std::to_string(index) + " が範囲外です";
+                error = "voice index " + std::to_string(index) + " is out of range";
                 return false;
             }
             VoiceRecord& v = out.voices[index];
@@ -161,27 +161,27 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
             // 値の範囲は pcmfile.md の設定1件と同じ。
             std::string why;
             if (len != kAdpcmChunkSize) {
-                why = "長さが " + std::to_string(len) + " で 7 ではありません";
+                why = "length " + std::to_string(len) + " is not 7";
             } else if (p[0] >= kAdpcmFiles) {
-                why = "ボイスファイル番号 " + std::to_string(p[0]) + " が範囲外です";
+                why = "voice file number " + std::to_string(p[0]) + " is out of range";
             } else {
                 AdpcmVoiceFile a;
                 a.startPage    = readLe16(p + 1);
                 a.pages        = readLe16(p + 3);
                 a.sampleRateHz = readLe16(p + 5);
                 if (a.pages == 0 || static_cast<uint32_t>(a.startPage) + a.pages > kAdpcmPages) {
-                    why = "ボイスファイル " + std::to_string(p[0]) + " の範囲が ADPCM メモリに収まりません";
+                    why = "voice file " + std::to_string(p[0]) + " does not fit in the ADPCM memory";
                 } else if (a.sampleRateHz < kAdpcmRateMin || a.sampleRateHz > kAdpcmRateMax) {
-                    why = "ボイスファイル " + std::to_string(p[0]) + " のサンプリング周波数 " +
-                          std::to_string(a.sampleRateHz) + "Hz が範囲外です";
+                    why = "voice file " + std::to_string(p[0]) + ": sampling rate " +
+                          std::to_string(a.sampleRateHz) + "Hz is out of range";
                 } else {
                     a.present = true;
                     out.adpcm[p[0]] = a;
                 }
             }
-            if (!why.empty()) out.warnings.push_back("ADPCM のボイスファイルの控え: " + why);
+            if (!why.empty()) out.warnings.push_back("ADPCM voice file entry: " + why);
         } else if (type < kChunkSkippableFirst) {
-            error = "知らない種別のチャンク " + hex2(type) + " があるため読めません";
+            error = "unknown chunk type " + hex2(type);
             return false;
         }
         pos = body + len;
@@ -197,8 +197,8 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
         const int d = static_cast<int>(t.device);
         const uint16_t bit = static_cast<uint16_t>(1u << t.channel);
         if (used[d] & bit) {
-            error = "デバイス " + std::to_string(d) + " のチャンネル " +
-                    std::to_string(t.channel) + " を複数のトラックが持っています";
+            error = "device " + std::to_string(d) + ": channel " +
+                    std::to_string(t.channel) + " is held by more than one track";
             return false;
         }
         used[d] |= bit;
@@ -209,8 +209,8 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
     }
     for (int d = 0; d < kDeviceCount; ++d) {
         if (hasMelody68[d] && hasRhythm[d]) {
-            error = "デバイス " + std::to_string(d) +
-                    " がチャンネル 6-8 とリズムチャンネルの両方を持っています";
+            error = "device " + std::to_string(d) +
+                    " holds both channels 6-8 and the rhythm channel";
             return false;
         }
         out.rhythmMode[d] = hasRhythm[d];
@@ -221,7 +221,7 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
 bool loadBlock(const std::vector<uint8_t>& file, SequenceBlock& out, std::string& error) {
     const BlockLocation loc = locateBlock(file.data(), file.size());
     if (!loc.found) {
-        error = "Y8SQ のシーケンスデータではありません";
+        error = "not Y8SQ sequence data";
         return false;
     }
     return parseBlock(file.data() + loc.offset, file.size() - loc.offset, out, error);

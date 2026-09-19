@@ -52,7 +52,7 @@ bool parseMuteSpec(const std::string& text, MuteSpec& out, std::string& error) {
         s.erase(0, 1);
     }
     if (s.empty()) {
-        error = "ミュートの指定が空です";
+        error = "empty mute spec";
         return false;
     }
 
@@ -65,7 +65,7 @@ bool parseMuteSpec(const std::string& text, MuteSpec& out, std::string& error) {
     if (s[0] == 'T' && allDigits(s.substr(1))) {
         const unsigned n = static_cast<unsigned>(std::stoul(s.substr(1)));
         if (n >= static_cast<unsigned>(kTrackCount)) {
-            error = "トラック番号は 0-15 です: " + text;
+            error = "track number must be 0-15: " + text;
             return false;
         }
         out.kind  = MuteSpec::Kind::Track;
@@ -80,7 +80,7 @@ bool parseMuteSpec(const std::string& text, MuteSpec& out, std::string& error) {
         if (chip == kSymbols[d]) found = d;
     }
     if (found < 0) {
-        error = "知らない指定です: " + text;
+        error = "unknown mute spec: " + text;
         return false;
     }
     out.device = static_cast<Device>(found);
@@ -91,7 +91,7 @@ bool parseMuteSpec(const std::string& text, MuteSpec& out, std::string& error) {
 
     const std::string ch = s.substr(comma + 1);
     if (!allDigits(ch) || ch.size() > 3 || !channelExists(out.device, static_cast<unsigned>(std::stoul(ch)))) {
-        error = std::string(kSymbols[found]) + " にチャンネル " + ch + " はありません";
+        error = std::string(kSymbols[found]) + " has no channel " + ch;
         return false;
     }
     out.kind    = MuteSpec::Kind::Channel;

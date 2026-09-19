@@ -53,7 +53,7 @@ bool DynamicLibrary::open(const std::filesystem::path& path, std::string& error)
     HMODULE h = LoadLibraryExW(path.c_str(), nullptr,
                                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!h) {
-        error = "読み込めません (Windows のエラー " + std::to_string(GetLastError()) + ")";
+        error = "cannot load (Windows error " + std::to_string(GetLastError()) + ")";
         return false;
     }
     handle_ = h;
@@ -61,7 +61,7 @@ bool DynamicLibrary::open(const std::filesystem::path& path, std::string& error)
     handle_ = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!handle_) {
         const char* msg = dlerror();
-        error = msg ? msg : "読み込めません";
+        error = msg ? msg : "cannot load";
         return false;
     }
 #endif

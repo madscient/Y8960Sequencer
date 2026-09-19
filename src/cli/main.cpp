@@ -56,19 +56,19 @@ constexpr float  kSilentAmplitude = 1.5f / 32768.0f;
 constexpr double kWavMaxSeconds   = 30.0 * 60.0;
 
 void printUsage() {
-    std::fputs("使い方: y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>]"
-               " [--tick <0-2>] [--repeat <0-255>] [--mute <指定>]... [--wav <出力ファイル>]\n"
-               "  --tick は演奏を進める割り込みの周期。0 が約60Hz、1 が約100Hz、"
-               "2 が約200Hz。省略時は 2\n"
-               "  --repeat は曲を鳴らす回数。0 は終わらない。省略時は 1\n"
-               "  --mute は黙らせるもの。繰り返して指定できる\n"
-               "    <チップ>[,<CH番号>]  チップは SSGS OPLLEX1 OPLLEX2 OPL2EX1 OPL2EX2"
+    std::fputs("usage: y8960player <sequence file> [--adpcm <Y8PC file>] [--tick <0-2>]\n"
+               "                   [--repeat <0-255>] [--mute <spec>]... [--wav <output file>]\n"
+               "  --tick    interrupt rate that drives playback, as CALL MINIT:\n"
+               "            0 = about 60Hz, 1 = about 100Hz, 2 = about 200Hz (default 2)\n"
+               "  --repeat  times to play the song, as CALL MSTART; 0 = endless (default 1)\n"
+               "  --mute    silence a part; may be given more than once\n"
+               "              <chip>[,<channel>]  chip: SSGS OPLLEX1 OPLLEX2 OPL2EX1 OPL2EX2"
                " DCSG1 DCSG2 SCC\n"
-               "    T<番号>              トラック 0-15\n"
-               "    <A-P>                トラック 0-15 を英字で\n"
-               "    頭に ! を付けると、指定したもの以外を黙らせる\n"
-               "  --wav は鳴らす代わりに WAV に書き出す（48000Hz、16bit、ステレオ）。"
-               "--repeat 0 とは一緒に使えない\n", stderr);
+               "              T<number>           track 0-15\n"
+               "              A-P                 track 0-15 as a letter\n"
+               "            prefix with ! to silence everything else\n"
+               "  --wav     write a WAV file (48000Hz, 16bit, stereo) instead of playing;\n"
+               "            cannot be combined with --repeat 0\n", stderr);
 }
 
 std::vector<fs::path> commandLine(int argc, char** argv) {
@@ -93,37 +93,37 @@ bool parseOptions(const std::vector<fs::path>& args, Options& opt) {
         const std::string a = args[i].u8string();
         if (a == "--adpcm") {
             if (i + 1 >= args.size()) {
-                std::fputs("--adpcm の後にファイル名がありません\n", stderr);
+                std::fputs("--adpcm needs a file name\n", stderr);
                 return false;
             }
             opt.adpcm = args[++i];
         } else if (a == "--tick") {
             if (i + 1 >= args.size()) {
-                std::fputs("--tick の後に値がありません\n", stderr);
+                std::fputs("--tick needs a value\n", stderr);
                 return false;
             }
             const std::string v = args[++i].u8string();
             if (v.size() != 1 || v[0] < '0' || v[0] > '2') {
-                std::fprintf(stderr, "--tick の値は 0 から 2 です: %s\n", v.c_str());
+                std::fprintf(stderr, "--tick must be 0 to 2: %s\n", v.c_str());
                 return false;
             }
             opt.tick = kTickRates[v[0] - '0'];
         } else if (a == "--repeat") {
             if (i + 1 >= args.size()) {
-                std::fputs("--repeat の後に値がありません\n", stderr);
+                std::fputs("--repeat needs a value\n", stderr);
                 return false;
             }
             const std::string v = args[++i].u8string();
             const bool digits = !v.empty() && v.size() <= 3 &&
                                 std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; });
             if (!digits || std::stoi(v) > 255) {
-                std::fprintf(stderr, "--repeat の値は 0 から 255 です: %s\n", v.c_str());
+                std::fprintf(stderr, "--repeat must be 0 to 255: %s\n", v.c_str());
                 return false;
             }
             opt.repeat = static_cast<uint8_t>(std::stoi(v));
         } else if (a == "--mute") {
             if (i + 1 >= args.size()) {
-                std::fputs("--mute の後に指定がありません\n", stderr);
+                std::fputs("--mute needs a spec\n", stderr);
                 return false;
             }
             y8960::MuteSpec spec;
@@ -135,29 +135,29 @@ bool parseOptions(const std::vector<fs::path>& args, Options& opt) {
             opt.mutes.push_back(spec);
         } else if (a == "--wav") {
             if (i + 1 >= args.size()) {
-                std::fputs("--wav の後にファイル名がありません\n", stderr);
+                std::fputs("--wav needs a file name\n", stderr);
                 return false;
             }
             opt.wav = args[++i];
         } else if (a == "--help" || a == "-h") {
             return false;
         } else if (a.size() >= 2 && a[0] == '-' && a[1] == '-') {
-            std::fprintf(stderr, "知らないオプションです: %s\n", a.c_str());
+            std::fprintf(stderr, "unknown option: %s\n", a.c_str());
             return false;
         } else if (!haveSequence) {
             opt.sequence = args[i];
             haveSequence = true;
         } else {
-            std::fprintf(stderr, "シーケンスファイルは1つだけ指定できます: %s\n", a.c_str());
+            std::fprintf(stderr, "only one sequence file may be given: %s\n", a.c_str());
             return false;
         }
     }
     if (!haveSequence) {
-        std::fputs("シーケンスファイルを指定してください\n", stderr);
+        std::fputs("no sequence file given\n", stderr);
         return false;
     }
     if (opt.wav && opt.repeat == 0) {
-        std::fputs("--wav と --repeat 0 は一緒に使えません（終わらない曲は書き出せない）\n", stderr);
+        std::fputs("--wav cannot be combined with --repeat 0 (an endless song cannot be written)\n", stderr);
         return false;
     }
     return true;
@@ -177,7 +177,7 @@ int exportWav(const Options& opt, const y8960::SequenceBlock& block, const y8960
     std::string error;
     y8960::PlaybackEngine engine;
     if (!engine.open(kSampleRate, opt.tick, error, false)) {
-        std::fprintf(stderr, "エミュレータを開けません: %s\n", error.c_str());
+        std::fprintf(stderr, "cannot open the emulators: %s\n", error.c_str());
         return 1;
     }
     engine.setTrackMutes(y8960::resolveMutes(opt.mutes, block));
@@ -222,10 +222,10 @@ int exportWav(const Options& opt, const y8960::SequenceBlock& block, const y8960
         std::fprintf(stderr, "%s: %s\n", opt.wav->u8string().c_str(), error.c_str());
         return 1;
     }
-    std::printf("%s: %.2f 秒\n", opt.wav->u8string().c_str(),
+    std::printf("%s: %.2f seconds\n", opt.wav->u8string().c_str(),
                 static_cast<double>(wav.frames()) / kSampleRate);
     if (cut) {
-        std::fprintf(stderr, "%.0f 分で打ち切りました（曲が終わりません）\n", kWavMaxSeconds / 60.0);
+        std::fprintf(stderr, "stopped after %.0f minutes (the song does not end)\n", kWavMaxSeconds / 60.0);
     }
     return 0;
 }
@@ -244,7 +244,7 @@ int main(int argc, char** argv) {
 
     std::vector<uint8_t> file;
     if (!readFile(opt.sequence, file)) {
-        std::fprintf(stderr, "%s: 読めません\n", opt.sequence.u8string().c_str());
+        std::fprintf(stderr, "%s: cannot read\n", opt.sequence.u8string().c_str());
         return 1;
     }
     y8960::SequenceBlock block;
@@ -255,7 +255,7 @@ int main(int argc, char** argv) {
     }
 
     for (const std::string& w : block.warnings) {
-        std::fprintf(stderr, "%s: %s（読み飛ばしました）\n", opt.sequence.u8string().c_str(), w.c_str());
+        std::fprintf(stderr, "%s: %s (skipped)\n", opt.sequence.u8string().c_str(), w.c_str());
     }
 
     y8960::PcmFile pcm;
@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
     if (opt.adpcm) {
         std::vector<uint8_t> raw;
         if (!readFile(*opt.adpcm, raw)) {
-            std::fprintf(stderr, "%s: 読めません\n", opt.adpcm->u8string().c_str());
+            std::fprintf(stderr, "%s: cannot read\n", opt.adpcm->u8string().c_str());
             return 1;
         }
         if (!y8960::parsePcmFile(raw, pcm, error)) {
@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
     for (const auto& t : block.tracks) assigned += t.assigned ? 1 : 0;
     int voiceFiles = 0;
     for (const auto& v : directory) voiceFiles += v.present ? 1 : 0;
-    std::printf("%s: 版 %u、トラック %d 本、ボイスファイル %d 個\n",
+    std::printf("%s: version %u, %d tracks, %d voice files\n",
                 opt.sequence.u8string().c_str(), static_cast<unsigned>(block.version),
                 assigned, voiceFiles);
 
@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
     {
         y8960::PlaybackEngine engine;
         if (!engine.open(kSampleRate, opt.tick, error)) {
-            std::fprintf(stderr, "音を出せません: %s\n", error.c_str());
+            std::fprintf(stderr, "cannot open the audio output: %s\n", error.c_str());
             return 1;
         }
         engine.setTrackMutes(y8960::resolveMutes(opt.mutes, block));

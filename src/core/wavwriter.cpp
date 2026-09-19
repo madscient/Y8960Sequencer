@@ -39,7 +39,7 @@ WavWriter::~WavWriter() {
 bool WavWriter::open(const std::filesystem::path& path, uint32_t sampleRate, std::string& error) {
     file_.open(path, std::ios::binary | std::ios::trunc);
     if (!file_) {
-        error = "書き込めません";
+        error = "cannot open for writing";
         return false;
     }
     frames_ = 0;
@@ -82,7 +82,7 @@ bool WavWriter::close(std::string& error) {
     put32(file_, static_cast<uint32_t>(dataBytes));
     const bool ok = static_cast<bool>(file_);
     file_.close();
-    if (!ok) error = "書き込みに失敗しました";
+    if (!ok) error = "write failed";
     return ok;
 }
 

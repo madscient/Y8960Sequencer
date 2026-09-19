@@ -65,7 +65,7 @@ bool Y8960Chips::open(const std::filesystem::path& libraryDir, uint32_t sampleRa
     for (Device d : {Device::OPL2EX1, Device::OPL2EX2}) {
         const size_t index = static_cast<size_t>(d);
         if (!engines_[index].setMemory(chipIds_[index], adpcm_.data(), kAdpcmMemorySize)) {
-            error = "ADPCM メモリを設定できません";
+            error = "cannot set the ADPCM memory";
             return false;
         }
     }
