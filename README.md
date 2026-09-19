@@ -81,6 +81,15 @@ ctest --test-dir build/player -C Release --output-on-failure
 SDL3 と Dear ImGui は CMake が取得する。`-DY8960_BUILD_GUI=OFF` で GUI を、
 `-DY8960_BUILD_CLI=OFF` でコマンドラインを外せる。
 
+Linux と macOS で Makefile などの単一構成のジェネレータを使うときは、`--config` の
+代わりに構成時に `-DCMAKE_BUILD_TYPE=Release` を渡す。
+
+Linux では、窓と音声出力のために、SDL3 が X11 か Wayland、および ALSA・PulseAudio・
+PipeWire のいずれかの開発用パッケージが要る。一覧は
+[SDL の README-linux](https://wiki.libsdl.org/SDL3/README-linux#build-dependencies) にある。
+どれも無い環境では構成が止まる。WAV の書き出しと試験だけでよければ、
+`-DSDL_UNIX_CONSOLE_BUILD=ON` を渡すと窓と音声出力を持たずにビルドできる。
+
 ## ライセンス
 
 [MIT License](LICENSE)。
