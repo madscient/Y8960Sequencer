@@ -250,5 +250,59 @@ int main() {
         }
     }
 
+    // 同じ tick に KEY OFF → KEY ON が重なっても、書き込み順で後ろになるリズムの打撃が
+    // 消えないこと。エミュレータは重なりごとに先に数 ms を作るので、重なりが多いと
+    // 割り込みの間隔（200Hz で 5ms）に収まらない。
+    {
+        SequenceBlock crowd;
+        crowd.version = 1;
+        crowd.voices[0] = fmVoice();
+        crowd.rhythmMode[static_cast<size_t>(Device::OPLLEX1)] = true;
+        std::vector<uint8_t> melody = {0x85, 0x00};
+        std::vector<uint8_t> drums  = {0xA9, 12, 0xAA, 15};
+        constexpr int kHits = 8;
+        for (int i = 0; i < kHits; ++i) {
+            melody.insert(melody.end(), {0x00, 24});    // クオンタイズ 8：境目で KEY OFF と KEY ON が同じ tick
+            drums.insert(drums.end(), {0xC8, 0x18, 24}); // BD と SD
+        }
+        for (int t = 0; t < 5; ++t) addTrack(crowd, t, Device::OPLLEX1, static_cast<uint8_t>(t), melody);
+        addTrack(crowd, 5, Device::OPLLEX1, kChannelRhythm, drums);
+
+        const uint32_t total = kRate * 2;
+        // エミュレータの内部状態（位相など）を揃えるため、毎回開き直す。
+        auto renderWith = [&](const std::vector<int>& muted) {
+            Y8960Chips c;
+            std::string err;
+            std::vector<float> l(total), r(total);
+            if (!c.open(executableDirectory(), kRate, err)) return l;
+            DeviceSet d(c);
+            d.resetAll();
+            Sequencer s(d, TickRate::Hz200);
+            s.load(0, crowd);
+            for (int t : muted) s.setTrackMute(0, t, true);
+            Player p(c, s, TickRate::Hz200, kRate);
+            s.start(0, 1);
+            p.render(l.data(), r.data(), total);
+            return l;
+        };
+        const auto all     = renderWith({});
+        const auto noDrums = renderWith({5});
+        const auto drumsOn = renderWith({0, 1, 2, 3, 4});
+        // 打撃の頭 30ms で、「全部 − リズムだけミュート」が「リズムだけ」の 3 割に届くか。
+        const uint32_t hit = kRate / 4, win = kRate * 3 / 100;
+        int heard = 0;
+        for (int i = 0; i < kHits; ++i) {
+            double eo = 0, ed = 0;
+            for (uint32_t k = i * hit; k < i * hit + win; ++k) {
+                const double dd = double(all[k]) - noDrums[k];
+                eo += double(drumsOn[k]) * drumsOn[k];
+                ed += dd * dd;
+            }
+            if (eo > 0 && ed >= eo * 0.09) ++heard;
+        }
+        std::printf("crowded rhythm hits heard: %d / %d\n", heard, kHits);
+        CHECK(heard == kHits);
+    }
+
     return check::finish("render_test");
 }
