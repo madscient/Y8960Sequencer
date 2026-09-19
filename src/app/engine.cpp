@@ -26,13 +26,14 @@ PlaybackEngine::~PlaybackEngine() {
     if (stream_) SDL_DestroyAudioStream(stream_);
 }
 
-bool PlaybackEngine::open(uint32_t sampleRate, TickRate rate, std::string& error) {
+bool PlaybackEngine::open(uint32_t sampleRate, TickRate rate, std::string& error, bool withAudio) {
     sampleRate_ = sampleRate;
     rate_       = rate;
     if (!chips_.open(executableDirectory(), sampleRate_, error)) return false;
     devices_ = std::make_unique<DeviceSet>(chips_);
     devices_->resetAll();
     rebuildPlayer();
+    if (!withAudio) return true;
 
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         error = SDL_GetError();
@@ -113,6 +114,11 @@ void PlaybackEngine::applyMutes() {
     for (int i = 0; i < kTrackCount; ++i) {
         sequencer_->setTrackMute(0, i, (muteMask_ >> i) & 1);
     }
+}
+
+void PlaybackEngine::renderOffline(float* left, float* right, uint32_t frames) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    player_->render(left, right, frames);
 }
 
 void PlaybackEngine::render(float* interleaved, int frames) {

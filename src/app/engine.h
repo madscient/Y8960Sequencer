@@ -29,7 +29,11 @@ public:
     PlaybackEngine& operator=(const PlaybackEngine&) = delete;
 
     // エミュレータを実行ファイルのフォルダから読み、音声デバイスを開く。
-    bool open(uint32_t sampleRate, TickRate rate, std::string& error);
+    // withAudio が false なら音声デバイスは開かず、renderOffline で音を取り出す。
+    bool open(uint32_t sampleRate, TickRate rate, std::string& error, bool withAudio = true);
+
+    // 音声デバイスを開かなかったときに、音を取り出す。
+    void renderOffline(float* left, float* right, uint32_t frames);
 
     // ブロックごとの音量とレベルメーター。
     void  setGain(Device device, float gain) { chips_.setGain(device, gain); }

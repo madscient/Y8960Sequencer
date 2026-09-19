@@ -16,6 +16,7 @@ add_library(y8960core STATIC
     player.cpp
     sequencer.cpp
     timing.cpp
+    wavwriter.cpp
 )
 target_include_directories(y8960core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(NOT WIN32)
