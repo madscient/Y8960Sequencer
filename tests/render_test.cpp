@@ -129,10 +129,10 @@ int main() {
         Player player2(chips, seq2, TickRate::Hz200, kRate);
         const double silence = rms(player2, kRate / 10);
         seq2.start(0, 1);
-        const double sample = rms(player2, kRate / 4);
-        std::printf("adpcm silence=%.5f playing=%.5f\n", silence, sample);
+        const double sounding = rms(player2, kRate / 4);
+        std::printf("adpcm silence=%.5f playing=%.5f\n", silence, sounding);
         CHECK(silence < 0.001);
-        CHECK(sample > 0.01);
+        CHECK(sounding > 0.01);
 
         // レベルメーターの元。鳴っているブロックだけに山が立つ。
         // 「前に読んでから」の山なので、いったん読み捨ててから測る。
@@ -155,6 +155,40 @@ int main() {
         const double back = rms(player2, kRate / 20);
         std::printf("muted=%.5f back=%.5f\n", muted, back);
         CHECK(back > 0.01);
+    }
+
+    // ADPCM が実際にサンプルメモリを読んでいるか。音が出るだけでは、メモリを読まず
+    // に出る音と見分けられないので、中身を変えて出力が変わることを見る。
+    {
+        auto renderAdpcm = [&](const std::vector<uint8_t>& memory) {
+            SequenceBlock only;
+            only.version = 1;
+            only.adpcm = block.adpcm;
+            addTrack(only, 0, Device::OPL2EX2, kChannelAdpcm, {0x82, 0x00, 0x00, 48});
+            chips.loadAdpcmMemory(memory);
+            devices.resetAll();
+            devices.setAdpcmDirectory(only.adpcm.data());
+            Sequencer s(devices, TickRate::Hz200);
+            s.load(0, only);
+            Player p(chips, s, TickRate::Hz200, kRate);
+            rms(p, kRate / 20);                          // 前の音を流しきる
+            s.start(0, 1);
+            std::vector<float> l(kRate / 5), r(kRate / 5);
+            p.render(l.data(), r.data(), static_cast<uint32_t>(l.size()));
+            return l;
+        };
+        std::vector<uint8_t> patternA(4 * 256), patternB(4 * 256);
+        for (size_t i = 0; i < patternA.size(); ++i) {
+            patternA[i] = static_cast<uint8_t>((i % 8 < 4) ? 0x33 : 0xCC);
+            patternB[i] = static_cast<uint8_t>((i % 32 < 16) ? 0x77 : 0x99);
+        }
+        const auto a = renderAdpcm(patternA);
+        const auto b = renderAdpcm(patternB);
+        double diff = 0;
+        for (size_t i = 0; i < a.size(); ++i) diff += std::fabs(double(a[i]) - b[i]);
+        diff /= static_cast<double>(a.size());
+        std::printf("adpcm memory A vs B: mean |diff| = %.5f\n", diff);
+        CHECK(diff > 0.001);
     }
 
     return check::finish("render_test");

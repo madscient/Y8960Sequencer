@@ -59,7 +59,10 @@ constexpr uint8_t kRegAdpcmEdH  = 0x0C;
 constexpr uint8_t kRegAdpcmDnL  = 0x10;
 constexpr uint8_t kRegAdpcmDnH  = 0x11;
 constexpr uint8_t kRegAdpcmVol  = 0x12;
-constexpr uint8_t kAdpcmStart   = 0x80;
+// START だけではサンプルメモリを読まない。bit5（MEMORY_DATA）が再生元を外部
+// メモリにする（ymfm の external()、openMSX の R07_MEMORY_DATA）。無いと CPU
+// ポートの値を読み続け、出力が一定値に張り付く。
+constexpr uint8_t kAdpcmStart   = 0xA0;
 constexpr uint8_t kAdpcmReset   = 0x01;
 constexpr uint8_t kAdpcmRefNote = 64;      // O5 E。録音した速さで鳴る音
 constexpr uint16_t kAdpcmDnDefault = 10546; // 8000Hz を 49716Hz に対して
