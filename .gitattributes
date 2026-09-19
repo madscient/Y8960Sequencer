@@ -1,0 +1,3 @@
+# GitHub のリリースに付くソースアーカイブから、AI 向けの文書を外す
+doc/plan.md export-ignore
+doc/rom-feedback.md export-ignore
