@@ -55,9 +55,16 @@ y8960gui [シーケンスファイル] [--adpcm <ADPCM サンプルファイル>
 - シーケンスデータにもボイスファイルの設定が入っていることがある。**両方あるときは
   `--adpcm` のほうを使う**
 
+## 入手
+
+Windows 版は [Releases](https://github.com/madscient/Y8960Sequencer/releases) の
+zip にある。展開したフォルダのまま使う。エミュレータのライブラリも同梱している。
+Linux と macOS は、ソースからビルドする。
+
 ## エミュレータ
 
-次の3本の共有ライブラリを、`y8960player` と同じフォルダに置く。
+次の3本の共有ライブラリを、`y8960player` と同じフォルダに置く。Windows 版の
+zip には入っている。
 
 | ライブラリ | Windows | Linux | macOS |
 |---|---|---|---|
@@ -77,6 +84,9 @@ ctest --test-dir build/player -C Release --output-on-failure
 
 `Y8960_EMULATOR_DIR` は省略できる。渡すと、ライブラリを実行ファイルのフォルダへ
 写し、エミュレータを使う試験（`chips_test` と `render_test`）も登録する。
+
+Windows の配布 zip は `python tools/package_windows.py <版>` で作る。3つの
+エミュレータのリポジトリが、このリポジトリと同じフォルダに並んでいる前提。
 
 SDL3 と Dear ImGui は CMake が取得する。`-DY8960_BUILD_GUI=OFF` で GUI を、
 `-DY8960_BUILD_CLI=OFF` でコマンドラインを外せる。
