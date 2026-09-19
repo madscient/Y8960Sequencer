@@ -1,5 +1,5 @@
 // OPL2EX（YM3812 ＋ ADPCM-B）。Y8960BasicExtension の src/dev/opl2ex.asm と
-// src/dev/rhythm.asm の写し。ADPCM チャンネル（9）はまだ鳴らさない。
+// src/dev/rhythm.asm・src/dev/adpcm.asm の写し。
 
 #include "dev_internal.h"
 #include "freqtab.h"
