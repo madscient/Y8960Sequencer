@@ -67,6 +67,7 @@ void PlaybackEngine::load(const SequenceBlock& block, const PcmFile* pcm) {
     if (pcm) chips_.loadAdpcmMemory(pcm->dump);
     rebuildPlayer();
     sequencer_->load(0, block_);
+    applyMutes();
     loaded_ = true;
 }
 
@@ -76,6 +77,7 @@ void PlaybackEngine::play(uint8_t repeat) {
     sequencer_->stop(0);
     devices_->resetAll();
     sequencer_->load(0, block_);
+    applyMutes();
     sequencer_->start(0, repeat);
 }
 
@@ -95,7 +97,22 @@ void PlaybackEngine::setTickRate(TickRate rate) {
     rate_ = rate;
     if (!devices_) return;          // まだ開いていない
     rebuildPlayer();
-    if (loaded_) sequencer_->load(0, block_);
+    if (loaded_) {
+        sequencer_->load(0, block_);
+        applyMutes();
+    }
+}
+
+void PlaybackEngine::setTrackMutes(uint16_t mask) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    muteMask_ = mask;
+    if (sequencer_) applyMutes();
+}
+
+void PlaybackEngine::applyMutes() {
+    for (int i = 0; i < kTrackCount; ++i) {
+        sequencer_->setTrackMute(0, i, (muteMask_ >> i) & 1);
+    }
 }
 
 void PlaybackEngine::render(float* interleaved, int frames) {

@@ -1,7 +1,9 @@
 // y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>] [--tick <0-2>]
+//             [--mute <指定>]...
 
 #include "block.h"
 #include "engine.h"
+#include "mute.h"
 #include "pcmfile.h"
 
 #include <SDL3/SDL.h>
@@ -40,13 +42,20 @@ struct Options {
     fs::path sequence;
     std::optional<fs::path> adpcm;
     y8960::TickRate tick = y8960::TickRate::Hz200;
+    std::vector<y8960::MuteSpec> mutes;
 };
 
 void printUsage() {
     std::fputs("使い方: y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>]"
-               " [--tick <0-2>]\n"
+               " [--tick <0-2>] [--mute <指定>]...\n"
                "  --tick は演奏を進める割り込みの周期。0 が約60Hz、1 が約100Hz、"
-               "2 が約200Hz。省略時は 2\n", stderr);
+               "2 が約200Hz。省略時は 2\n"
+               "  --mute は黙らせるもの。繰り返して指定できる\n"
+               "    <チップ>[,<CH番号>]  チップは SSGS OPLLEX1 OPLLEX2 OPL2EX1 OPL2EX2"
+               " DCSG1 DCSG2 SCC\n"
+               "    T<番号>              トラック 0-15\n"
+               "    <A-P>                トラック 0-15 を英字で\n"
+               "    頭に ! を付けると、指定したもの以外を黙らせる\n", stderr);
 }
 
 std::vector<fs::path> commandLine(int argc, char** argv) {
@@ -86,6 +95,18 @@ bool parseOptions(const std::vector<fs::path>& args, Options& opt) {
                 return false;
             }
             opt.tick = kTickRates[v[0] - '0'];
+        } else if (a == "--mute") {
+            if (i + 1 >= args.size()) {
+                std::fputs("--mute の後に指定がありません\n", stderr);
+                return false;
+            }
+            y8960::MuteSpec spec;
+            std::string why;
+            if (!y8960::parseMuteSpec(args[++i].u8string(), spec, why)) {
+                std::fprintf(stderr, "--mute: %s\n", why.c_str());
+                return false;
+            }
+            opt.mutes.push_back(spec);
         } else if (a == "--help" || a == "-h") {
             return false;
         } else if (a.size() >= 2 && a[0] == '-' && a[1] == '-') {
@@ -171,6 +192,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "音を出せません: %s\n", error.c_str());
             return 1;
         }
+        engine.setTrackMutes(y8960::resolveMutes(opt.mutes, block));
         engine.load(block, havePcm ? &pcm : nullptr);
         engine.play(kRepeat);
         while (engine.playing()) SDL_Delay(20);

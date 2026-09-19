@@ -162,12 +162,25 @@ void LevelMeter::update(const PlaybackEngine& engine, const SequenceBlock& block
     }
 }
 
-void LevelMeter::draw() const {
+uint16_t MuteState::trackMask(const SequenceBlock& block) const {
+    uint16_t mask = 0;
+    for (int i = 0; i < kTrackCount; ++i) {
+        const TrackData& t = block.tracks[static_cast<size_t>(i)];
+        if (t.assigned && muted(t.device, t.channel)) mask = static_cast<uint16_t>(mask | (1u << i));
+    }
+    return mask;
+}
+
+bool LevelMeter::draw(MuteState& mutes) const {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float segH = (kBarHeight - kSegGap * (kSegments - 1)) / kSegments;
+    bool changed = false;
 
     for (size_t d = 0; d < kDeviceCount; ++d) {
         if (!bandUsed_[d]) continue;
+        ImGui::PushID(static_cast<int>(d));
+        if (ImGui::Checkbox("Mute", &mutes.chip[d])) changed = true;
+        ImGui::SameLine();
         ImGui::SeparatorText(kBandNames[d]);
         const ImVec2 origin = ImGui::GetCursorScreenPos();
 
@@ -178,6 +191,21 @@ void LevelMeter::draw() const {
             const ImVec2 pos(origin.x + static_cast<float>(column) * (kBarWidth + kBarGap), origin.y);
             const ImVec2 trackMax(pos.x + kBarWidth, pos.y + kBarHeight);
             ++column;
+
+            // リズムの5つの楽器は、チャンネル 10 の1本として黙る。
+            const uint8_t channel = (s >= kRhythmSlotFirst) ? kChannelRhythm : static_cast<uint8_t>(s);
+            const bool muted = mutes.muted(static_cast<Device>(d), channel);
+
+            // バーをクリックすると、そのチャンネルのミュートが切り替わる。
+            ImGui::SetCursorScreenPos(pos);
+            ImGui::PushID(static_cast<int>(s));
+            if (ImGui::InvisibleButton("bar", ImVec2(kBarWidth, kBarHeight + kLabelH))) {
+                bool& flag = mutes.channel[d][channel];
+                flag = !flag;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(muted ? "Click to unmute" : "Click to mute");
+            ImGui::PopID();
 
             dl->AddRectFilled(pos, trackMax, IM_COL32(16, 16, 18, 255));
 
@@ -206,18 +234,22 @@ void LevelMeter::draw() const {
                 if (i == peakSeg) col = blend(col, IM_COL32(255, 255, 255, 255), peakAlpha * 0.85f);
                 dl->AddRectFilled(ImVec2(pos.x + 1.0f, top), ImVec2(trackMax.x - 1.0f, top + segH), col);
             }
-            dl->AddRect(pos, trackMax, IM_COL32(70, 70, 75, 255));
+            if (muted) dl->AddRectFilled(pos, trackMax, IM_COL32(0, 0, 0, 170));
+            dl->AddRect(pos, trackMax, muted ? IM_COL32(200, 60, 60, 255) : IM_COL32(70, 70, 75, 255));
 
             const char* label = slotLabel(static_cast<Device>(d), static_cast<uint8_t>(s));
             const ImVec2 size = ImGui::CalcTextSize(label);
             dl->AddText(ImVec2(pos.x + (kBarWidth - size.x) * 0.5f, trackMax.y + 2.0f),
-                        IM_COL32(200, 200, 200, 255), label);
+                        muted ? IM_COL32(230, 80, 80, 255) : IM_COL32(200, 200, 200, 255), label);
         }
 
         // 直接描いたぶんカーソルを進める。
+        ImGui::SetCursorScreenPos(origin);
         ImGui::Dummy(ImVec2(static_cast<float>(column) * (kBarWidth + kBarGap),
                             kBarHeight + kLabelH + kRowGap));
+        ImGui::PopID();
     }
+    return changed;
 }
 
 } // namespace y8960

@@ -221,5 +221,28 @@ int main() {
         CHECK(bd.level.load() > sd.level.load());       // アクセントの付いたほうが大きい
     }
 
+    // トラックのミュート。キーオンを止め、音量は 0。解けば次の音符から鳴る。
+    {
+        RecordingBus bus;
+        DeviceSet devices(bus);
+        devices.resetAll();
+        ChannelActivity activity;
+        Sequencer seq(devices, TickRate::Vdp60);
+        seq.setActivity(&activity);
+        const SequenceBlock block = seqtest::oneTrack(Device::SSGS, 0, {0x00, 48, 0x00, 48});
+        seq.load(0, block);
+        seq.setTrackMute(0, 0, true);
+        bus.tick = 0;
+        seq.start(0, 1);
+        run(seq, bus, 20);                              // 1音目の途中
+        CHECK(bus.count(Device::SSGS, kSsgVolA, 8) == 0);
+        CHECK(activity.read(Device::SSGS, 0).noteOnSeq.load() == 0);
+
+        seq.setTrackMute(0, 0, false);
+        for (int i = 20; i < 50; ++i) { bus.tick = i; seq.interrupt(); }
+        CHECK(bus.count(Device::SSGS, kSsgVolA, 8) >= 1);  // 2音目は鳴る
+        CHECK(activity.read(Device::SSGS, 0).noteOnSeq.load() == 1);
+    }
+
     return check::finish("sequencer_test");
 }

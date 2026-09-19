@@ -16,13 +16,28 @@ namespace y8960 {
 
 class PlaybackEngine;
 
+// 画面で選んだミュート。チップ単位と、チャンネル単位（0-10。リズムは 10 の1本）。
+struct MuteState {
+    std::array<bool, kDeviceCount> chip{};
+    std::array<std::array<bool, kChannelRhythm + 1>, kDeviceCount> channel{};
+
+    bool muted(Device device, uint8_t ch) const {
+        const size_t d = static_cast<size_t>(device);
+        return chip[d] || (ch <= kChannelRhythm && channel[d][ch]);
+    }
+    // 黙らせるトラックのビット。
+    uint16_t trackMask(const SequenceBlock& block) const;
+};
+
 class LevelMeter {
 public:
     // 既定では、読み込んだシーケンスが使うチャンネルだけを出す。showAll を立てると
     // 8ブロックの全チャンネルを出す。
     void update(const PlaybackEngine& engine, const SequenceBlock& block, bool haveBlock,
                 bool showAll, float now);
-    void draw() const;
+    // 帯の見出しのチェックボックスでチップを、バーのクリックでチャンネルを
+    // ミュートする。変わったら true を返す。
+    bool draw(MuteState& mutes) const;
 
 private:
     struct Bar {

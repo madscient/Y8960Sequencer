@@ -44,6 +44,7 @@ struct App {
     int         tick   = 3;          // kTickNames の索引
     bool        showAllChannels = false;
     y8960::LevelMeter meter;
+    y8960::MuteState  mutes;
 
     // ファイル選択の答えは別のスレッドから来ることがあるので、いったん置く。
     std::mutex  pending;
@@ -76,6 +77,7 @@ void loadSequence(App& app, const std::string& path) {
     }
     app.haveBlock = true;
     app.sequenceName = baseName(path);
+    app.engine.setTrackMutes(app.mutes.trackMask(app.block));
     app.engine.load(app.block, app.havePcm ? &app.pcm : nullptr);
     int tracks = 0;
     for (const auto& t : app.block.tracks) tracks += t.assigned ? 1 : 0;
@@ -265,9 +267,18 @@ int main(int argc, char** argv) {
         ImGui::TextUnformatted(app.status.c_str());
 
         ImGui::Checkbox("All channels", &app.showAllChannels);
+        ImGui::SameLine();
+        bool mutesChanged = false;
+        if (ImGui::Button("Unmute all")) {
+            app.mutes = y8960::MuteState{};
+            mutesChanged = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(click a bar to mute its channel)");
         app.meter.update(app.engine, app.block, app.haveBlock, app.showAllChannels,
                          static_cast<float>(ImGui::GetTime()));
-        app.meter.draw();
+        if (app.meter.draw(app.mutes)) mutesChanged = true;
+        if (mutesChanged && app.haveBlock) app.engine.setTrackMutes(app.mutes.trackMask(app.block));
 
         ImGui::Separator();
         drawTracks(app);

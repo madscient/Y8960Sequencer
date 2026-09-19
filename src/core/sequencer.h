@@ -43,6 +43,10 @@ public:
     // 画面のレベルメーターに渡す、チャンネルごとの発音の様子。
     void setActivity(ChannelActivity* activity) { activity_ = activity; }
 
+    // トラック単位のミュート。ROM の MMUTE と同じく、キーオンとリズムの打撃を止め、
+    // 音量は 0 を書く。演奏中に切り替えてよい。load で解ける。
+    void setTrackMute(int sequence, int track, bool mute);
+
     void interrupt() override;
     bool finished() const override;
 
@@ -64,6 +68,7 @@ private:
         uint8_t  rhythmLevel  = 8;    // リズムの V。レベルメーターのために持つ
         uint8_t  rhythmAccentLevel = 15;   // 同じく @A
         uint8_t  outVolume   = 0;     // 最後にデバイスへ出した音量 0-127
+        bool     muted       = false;
         uint8_t  loopSp = 0;
         std::array<uint8_t, kLoopDepth> loop{};
         std::array<uint8_t, kMarkCount> mark{};

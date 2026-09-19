@@ -114,6 +114,22 @@ void Sequencer::stop(int sequence) {
     if (activity_) activity_->allOff();
 }
 
+void Sequencer::setTrackMute(int sequence, int track, bool mute) {
+    Sequence& s = sequences_[static_cast<size_t>(sequence)];
+    Track& t = s.tracks[static_cast<size_t>(track)];
+    if (t.muted == mute) return;
+    t.muted = mute;
+    if (!t.assigned) return;
+    // ROM のミュートと同じく、鳴っている音はキーオフせず音量 0 で消す。
+    volumeOut(s, t);
+    if (!mute || !activity_) return;
+    if (t.channel == kChannelRhythm) {
+        for (uint8_t i = 0; i < 5; ++i) activity_->noteOff(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i));
+    } else {
+        activity_->noteOff(t.device, t.channel);
+    }
+}
+
 bool Sequencer::finished() const {
     for (const Sequence& s : sequences_) {
         if (s.state != State::Idle) return false;
@@ -149,35 +165,29 @@ uint16_t Sequencer::buildMask(const Sequence& s) const {
     return mask;
 }
 
+// 周が終わったら、次の周は同じ tick のうちに始まる（seq.asm の PASSAGAIN）。
+// ただし終わった周がその最初の tick のうちに終わっていた ―― 時間を取らなかった ―― なら
+// 次の tick を待つ。そうしないと、時間を取らない周が1つの tick の中で回り続ける。
+// SQ_FIRST にあたる s.first は巻き戻しで立ち、周が最初の tick を越えて初めて下りる。
 void Sequencer::tracks(Sequence& s) {
     for (;;) {
-        if (s.active == 0) {
-            passEnd(s);
-            // 周が終わって次が始まったとき、その周をこの tick で走らせるかは
-            // passEnd が決める（SQ_FIRST）。走らせるなら下の walk へ戻る。
-            if (s.state != State::Playing || !s.first) return;
-            if (s.active == 0) return;
-            s.first = false;
-            continue;
-        }
-
-        uint16_t walking = s.active;
-        for (int i = 0; i < kTrackCount && walking != 0; ++i, walking = static_cast<uint16_t>(walking >> 1)) {
-            if (!(walking & 1)) continue;
-            trackStep(s, s.tracks[static_cast<size_t>(i)], i);
-            // (DC) や (FINE) はマスクを空にする。上のトラックも進めない。
-            if (s.active == 0) break;
-        }
         if (s.active != 0) {
-            s.first = false;
-            return;
+            uint16_t walking = s.active;
+            for (int i = 0; i < kTrackCount && walking != 0; ++i, walking = static_cast<uint16_t>(walking >> 1)) {
+                if (!(walking & 1)) continue;
+                trackStep(s, s.tracks[static_cast<size_t>(i)], i);
+                // (DC) や (FINE) はマスクを空にする。上のトラックも進めない。
+                if (s.active == 0) break;
+            }
+            if (s.active != 0) {
+                s.first = false;      // 周が最初の tick を越えた
+                return;
+            }
         }
-        // 最後のトラックがこの tick で尽きた。もう一度 passEnd へ。
         const bool wasFirst = s.first;
-        passEnd(s);
+        passEnd(s);                   // 次があれば巻き戻し、s.first を立てる
         if (s.state != State::Playing) return;
-        if (wasFirst) return;      // 時間を取らなかった周は、次の tick を待つ
-        s.first = false;
+        if (wasFirst) return;
     }
 }
 
@@ -343,7 +353,7 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             const uint8_t instruments = readByte(t);
             t.wait = readLength(t);
             t.gate = 0;
-            if (!s.mute) {
+            if (!s.mute && !t.muted) {
                 device(t).rhythmStrike(instruments, t.rhythmAccent);
                 reportStrike(s, t, instruments);
             }
@@ -443,7 +453,7 @@ bool Sequencer::note(Sequence& s, Track& t, int index, uint8_t number) {
     if (!carry) keyOff(t);
     t.note = number;
     repitch(t);
-    if (!carry && !s.mute) {
+    if (!carry && !s.mute && !t.muted) {
         device(t).keyOn(t.channel);
         if (activity_) activity_->noteOn(t.device, t.channel, t.outVolume);
     }
@@ -540,7 +550,7 @@ void Sequencer::reportStrike(Sequence& s, const Track& t, uint8_t instruments) {
         if (!(instruments & kBits[i])) continue;
         const uint8_t level15 = (t.rhythmAccent & kBits[i]) ? t.rhythmAccentLevel : t.rhythmLevel;
         // 0-15 を 0-127 に伸ばし、シーケンスの音量を掛ける。
-        const uint8_t loud = mulVol(static_cast<uint8_t>(level15 * 127 / 15), s.mute ? 0 : s.current);
+        const uint8_t loud = mulVol(static_cast<uint8_t>(level15 * 127 / 15), (s.mute || t.muted) ? 0 : s.current);
         activity_->noteOn(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i), loud);
     }
 }
@@ -549,7 +559,7 @@ void Sequencer::reportStrike(Sequence& s, const Track& t, uint8_t instruments) {
 // レベルを持つので、シーケンスのぶんだけを送る。
 void Sequencer::volumeOut(Sequence& s, Track& t) {
     const uint8_t own = (t.channel == kChannelRhythm) ? kMixerMax : t.vol;
-    const uint8_t scale = s.mute ? 0 : s.current;
+    const uint8_t scale = (s.mute || t.muted) ? 0 : s.current;
     t.outVolume = mulVol(own, scale);
     device(t).setVolume(t.channel, t.outVolume);
 }

@@ -9,6 +9,7 @@ add_library(y8960core STATIC
     device.cpp
     fmengine.cpp
     freqtab.cpp
+    mute.cpp
     pcmfile.cpp
     pitch.cpp
     platform.cpp

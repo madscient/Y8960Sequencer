@@ -37,6 +37,9 @@ public:
     // チャンネルごとの発音の様子。画面のスレッドから読んでよい。
     const ChannelActivity& activity() const { return activity_; }
 
+    // 黙らせるトラックのビット（bit n がトラック n）。読み込み直しても続く。
+    void setTrackMutes(uint16_t mask);
+
     // 鳴らすものを差し替える。演奏中なら止まる。
     void load(const SequenceBlock& block, const PcmFile* pcm);
 
@@ -52,6 +55,9 @@ public:
 
 private:
     void rebuildPlayer();
+    void applyMutes();          // mutex_ を持って呼ぶこと
+
+    uint16_t muteMask_ = 0;
 
     std::mutex  mutex_;
     Y8960Chips  chips_;

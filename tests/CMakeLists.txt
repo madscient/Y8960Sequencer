@@ -1,4 +1,4 @@
-foreach(_t block_test freqtab_test pcmfile_test sequencer_test timing_test)
+foreach(_t block_test freqtab_test mute_test pcmfile_test sequencer_test timing_test)
     add_executable(${_t} ${_t}.cpp)
     target_link_libraries(${_t} PRIVATE y8960core)
     add_test(NAME ${_t} COMMAND ${_t})
