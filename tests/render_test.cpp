@@ -7,6 +7,7 @@
 #include "player.h"
 #include "sequencer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -147,7 +148,10 @@ int main() {
         CHECK(chips.takeLevel(Device::OPL2EX2) == 0.0f);
 
         // ブロックごとの音量。0 にすればそのブロックは出てこない。
+        // Player は割り込みの間隔1回ぶんを先に作ってためるので、その分は前の音量で出る。
         chips.setGain(Device::OPL2EX2, 0.0f);
+        rms(player2, kRate / 100);
+        chips.takeLevel(Device::OPL2EX2);
         const double muted = rms(player2, kRate / 20);
         CHECK(muted < 0.001);
         CHECK(chips.takeLevel(Device::OPL2EX2) == 0.0f);
@@ -189,6 +193,61 @@ int main() {
         diff /= static_cast<double>(a.size());
         std::printf("adpcm memory A vs B: mean |diff| = %.5f\n", diff);
         CHECK(diff > 0.001);
+    }
+
+    // 呼び出し側が一度に求めるサンプル数で音が変わらないこと。リアルタイム再生では
+    // 音声出力が求める量が負荷で揺れる。同じ tick の KEY OFF → KEY ON は、
+    // エミュレータが間に少し音を作って KEY OFF を見せるが、求める量が割り込みの
+    // 直後で切れているとその分が作れない。
+    {
+        SequenceBlock legato;
+        legato.version = 1;
+        legato.voices[0] = fmVoice();
+        // 同じ音を4つ。クオンタイズ 8 なので、音の境目で KEY OFF と KEY ON が同じ tick に来る。
+        addTrack(legato, 0, Device::OPLLEX1, 0, {0x85, 0x00, 0x00, 24, 0x00, 24, 0x00, 24, 0x00, 24});
+        addTrack(legato, 1, Device::OPL2EX1, 0, {0x85, 0x00, 0x00, 24, 0x00, 24, 0x00, 24, 0x00, 24});
+        const uint32_t total = kRate;
+        auto renderIn = [&](uint32_t chunk) {
+            devices.resetAll();
+            Sequencer s(devices, TickRate::Hz200);
+            s.load(0, legato);
+            Player p(chips, s, TickRate::Hz200, kRate);
+            rms(p, kRate / 20);
+            s.start(0, 1);
+            std::vector<float> l(total), r(total);
+            for (uint32_t at = 0; at < total; at += chunk) {
+                p.render(l.data() + at, r.data() + at, std::min(chunk, total - at));
+            }
+            return l;
+        };
+        // 1ms ごとの RMS が、鳴っているあいだの中央値の 1/10 を切る区間の数。
+        // KEY OFF が効けば、3つの音の境目に谷ができる。
+        auto dips = [&](const std::vector<float>& l) {
+            const uint32_t w = kRate / 1000;
+            std::vector<double> env;
+            for (uint32_t at = 0; at + w <= total; at += w) {
+                double sum = 0;
+                for (uint32_t i = 0; i < w; ++i) sum += double(l[at + i]) * l[at + i];
+                env.push_back(std::sqrt(sum / w));
+            }
+            // 最初の音の立ち上がりと最後の音の後を除く
+            std::vector<double> body(env.begin() + 20, env.begin() + 980);
+            std::vector<double> sorted = body;
+            std::sort(sorted.begin(), sorted.end());
+            const double floor = sorted[sorted.size() / 2] * 0.1;
+            int count = 0;
+            bool in = false;
+            for (double e : body) {
+                if (e < floor && !in) ++count;
+                in = e < floor;
+            }
+            return count;
+        };
+        for (uint32_t chunk : {total, 1024u, 7u, 1u}) {
+            const int n = dips(renderIn(chunk));
+            std::printf("chunk %u: %d dips\n", chunk, n);
+            CHECK(n == 3);
+        }
     }
 
     return check::finish("render_test");

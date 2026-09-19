@@ -5,6 +5,7 @@
 #include "timing.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace y8960 {
 
@@ -31,7 +32,12 @@ private:
     Y8960Chips&       chips_;
     InterruptHandler& handler_;
     InterruptClock    clock_;
-    uint32_t          untilInterrupt_ = 0;
+    // 割り込みの間隔1回ぶんを、呼び出し側が求める量によらず一度に作ってためる。
+    // エミュレータは同じ tick の KEY OFF → KEY ON を見せるために、1回の生成の中で
+    // 間に数 ms を作る。生成が割り込みの直後で細かく切れると、その分が作れず
+    // KEY OFF が消える。リアルタイム再生では求める量が負荷で揺れる。
+    std::vector<float> bufL_, bufR_;
+    size_t            pos_ = 0;
 };
 
 } // namespace y8960
