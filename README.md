@@ -103,10 +103,3 @@ PipeWire のいずれかの開発用パッケージが要る。一覧は
 ## ライセンス
 
 [MIT License](LICENSE)。
-
-## ドキュメント
-
-| | |
-|---|---|
-| [`doc/plan.md`](doc/plan.md) | 設計判断、見送った案、未決事項、進捗 |
-| [`doc/rom-feedback.md`](doc/rom-feedback.md) | Y8960 BASIC Extension へ返す相違点と不足情報 |
