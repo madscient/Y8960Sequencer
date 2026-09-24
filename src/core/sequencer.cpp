@@ -593,10 +593,12 @@ bool Sequencer::markHit(Track& t, uint8_t ordinal, uint8_t at) {
 }
 
 // ダカーポとフィーネは、そのトラックだけでなくシーケンス全体の周を終わらせる。
+// ここではキーオフしない。次の周は同じ tick で始まり、音符も休符も最初に
+// キーを切る。`0E` で始まるトラックだけが前の周の最後の音を保つ（bytecode.md）。
+// 繰り返しを使い切ったときのキーオフは passEnd が持つ。
 bool Sequencer::daCapo(Sequence& s, Track& t) {
     (void)t;
     s.active = 0;
-    seqOff(s);
     return true;
 }
 

@@ -291,5 +291,44 @@ int main() {
         }
     }
 
+    // (DC) はキーオフしない。0E で始まるトラックは前の周の最後の音を保ち、音符で
+    // 始まるトラックはその音符が鳴らし直す。繰り返しを使い切れば全部が止まる。
+    // 先頭の 86（セーニョの目印）は読み飛ばされる。
+    {
+        RecordingBus bus;
+        DeviceSet devices(bus);
+        devices.resetAll();
+        Sequencer seq(devices, TickRate::Vdp60);
+        SequenceBlock block = seqtest::oneTrack(Device::SSGS, 0, {0x86, 0, 0x00, 48, 0x43});
+        TrackData& held = block.tracks[1];
+        held.assigned = true;
+        held.device   = Device::SSGS;
+        held.channel  = 1;
+        held.events   = {0x0E, 24, 0x04, 72, 0xFF};
+        seq.load(0, block);
+        bus.tick = 0;
+        seq.start(0, 2);
+        run(seq, bus, 80);
+
+        constexpr uint8_t kSsgVolB = kSsgVolA + 1;
+        // 1周目の e は 24 tick 目から。(DC) の 48 tick 目を越えて、2周目の e が
+        // 鳴らし直す 72 tick 目まで切れない。
+        const int held0 = bus.firstTick(Device::SSGS, kSsgVolB, 0, kQuarterInterrupts / 2 + 2);
+        CHECK(near(held0, kQuarterInterrupts * 3 / 2));
+        // c は周ごとに鳴らし直す。86 を越えて鳴っている。巻き戻しは鳴っている c に
+        // 音量を書き直すので、立ち上がりを数える。
+        int strikes = 0;
+        int prev = 0;
+        for (const uint8_t v : bus.values(Device::SSGS, kSsgVolA)) {
+            if (prev == 0 && v != 0) ++strikes;
+            prev = v;
+        }
+        CHECK(strikes == 2);
+        CHECK(seq.finished());
+        CHECK(bus.writes.back().tick <= kQuarterInterrupts * 2 + 1);
+        CHECK(bus.values(Device::SSGS, kSsgVolA).back() == 0);
+        CHECK(bus.values(Device::SSGS, kSsgVolB).back() == 0);
+    }
+
     return check::finish("sequencer_test");
 }
