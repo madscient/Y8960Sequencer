@@ -244,5 +244,52 @@ int main() {
         CHECK(activity.read(Device::SSGS, 0).noteOnSeq.load() == 1);
     }
 
+    // Q が 8 未満でのタイとレガート。& と数値の無い ~ の前の音符は音長いっぱい鳴り、
+    // 後ろの音符は自分の長さに Q が効く。数値のある ~ と、間に挟まったイベントは
+    // つながない。
+    {
+        struct Case {
+            const char* name;
+            std::initializer_list<int> events;
+            int strikes;
+        };
+        const Case cases[] = {
+            {"Q4 c&e",      {0x83, 4, 0x00, 48, 0x45, 0x04, 48, 0x0C, 48}, 1},
+            {"Q4 c~e",      {0x83, 4, 0x00, 48, 0xD2, 0x00, 0x80, 0x04, 48, 0x0C, 48}, 1},
+            {"Q4 c~100e",   {0x83, 4, 0x00, 48, 0xD2, 100, 0x00, 0x04, 48, 0x0C, 48}, 2},
+            {"Q4 c V & e",  {0x83, 4, 0x00, 48, 0x81, kDefaultVol, 0x45, 0x04, 48, 0x0C, 48}, 2},
+        };
+        for (const Case& c : cases) {
+            RecordingBus bus;
+            DeviceSet devices(bus);
+            devices.resetAll();
+            Sequencer seq(devices, TickRate::Vdp60);
+            const SequenceBlock block = seqtest::oneTrack(Device::SSGS, 0, c.events);
+            seq.load(0, block);
+            bus.tick = 0;
+            seq.start(0, 1);
+            run(seq, bus, 100);
+
+            // レベルが 0 から立ち上がった回数がキーオンの回数。
+            int strikes = 0;
+            int firstOff = -1;
+            int prev = 0;
+            for (const auto& w : bus.writes) {
+                if (w.chip != Device::SSGS || w.reg != kSsgVolA) continue;
+                if (prev == 0 && w.value != 0) ++strikes;
+                if (prev != 0 && w.value == 0 && firstOff < 0) firstOff = w.tick;
+                prev = w.value;
+            }
+            if (strikes != c.strikes) std::printf("  %s: strikes %d\n", c.name, strikes);
+            CHECK(strikes == c.strikes);
+            if (c.strikes == 1) {
+                // c は切れず、e が自分の Q4 で 24 tick 目に切れる。
+                CHECK(near(firstOff, kQuarterInterrupts + kQuarterInterrupts / 2));
+            } else {
+                CHECK(near(firstOff, kQuarterInterrupts / 2));   // c が Q4 どおり切れる
+            }
+        }
+    }
+
     return check::finish("sequencer_test");
 }

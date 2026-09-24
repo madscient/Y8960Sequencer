@@ -115,6 +115,7 @@ private:
 
     bool note(Sequence& s, Track& t, int index, uint8_t number);
     void setGate(Track& t);
+    bool joined(const Track& t) const;   // 直後が `&` か数値の無い `~`
     bool setGlide(Track& t, uint8_t number);   // true = 前の音から続ける
     void computeStep(Track& t);
     void glideStep(Track& t);

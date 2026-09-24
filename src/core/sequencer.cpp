@@ -461,8 +461,10 @@ bool Sequencer::note(Sequence& s, Track& t, int index, uint8_t number) {
 }
 
 // Q8 はゲートを置かない ―― 次のキーオンまで鳴り続ける。
+// 直後で次の音符へつながる音符も、Q に関係なくゲートを置かない。`&` や `~` を
+// 読むのは音長が尽きてからなので、ゲートがあるとその時には続ける相手が消えている。
 void Sequencer::setGate(Track& t) {
-    if (t.quant >= kQuantMax) {
+    if (t.quant >= kQuantMax || joined(t)) {
         t.gate = 0;
         return;
     }
@@ -470,6 +472,18 @@ void Sequencer::setGate(Track& t) {
     for (uint8_t i = 0; i < t.quant; ++i) v = static_cast<uint16_t>(v + t.wait);
     v = static_cast<uint16_t>(v >> 3);
     t.gate = (v == 0) ? 1 : v;   // 0 はゲートが無いことになってしまう
+}
+
+// 音符の直後の1イベントだけを見る（ROM の TRKJOINED）。間に別のイベントが
+// 挟まれば、Q どおり途中で切れる。数値のある `~` は鳴らし直すので、つながない。
+bool Sequencer::joined(const Track& t) const {
+    const auto at = [&t](size_t i) -> uint8_t {
+        return (t.events && i < t.events->size()) ? (*t.events)[i] : kEvEnd;
+    };
+    const uint8_t op = at(t.ptr);
+    if (op == kEvTie) return true;
+    if (op != kEvPorta) return false;
+    return (at(t.ptr + 1) | (at(t.ptr + 2) << 8)) == kPortaHere;
 }
 
 bool Sequencer::setGlide(Track& t, uint8_t number) {
