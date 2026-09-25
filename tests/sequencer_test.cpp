@@ -330,5 +330,39 @@ int main() {
         CHECK(bus.values(Device::SSGS, kSsgVolB).back() == 0);
     }
 
+    // c-（0F）と b+（10）は、その1音だけ隣のオクターブで鳴り、走行状態のオクターブは
+    // 動かさない。書かれる音程を、オクターブを明示した同じ音と比べる。
+    {
+        auto tones = [](std::initializer_list<int> events) {
+            RecordingBus bus;
+            DeviceSet devices(bus);
+            devices.resetAll();
+            Sequencer seq(devices, TickRate::Vdp60);
+            const SequenceBlock block = seqtest::oneTrack(Device::SSGS, 0, events);
+            seq.load(0, block);
+            bus.tick = 0;
+            seq.start(0, 1);
+            run(seq, bus, 100);
+            std::vector<uint16_t> out;
+            const auto low  = bus.values(Device::SSGS, kSsgToneA);
+            const auto high = bus.values(Device::SSGS, kSsgToneA + 1);
+            for (size_t i = 0; i < low.size() && i < high.size(); ++i) {
+                if (low[i] | high[i]) out.push_back(static_cast<uint16_t>(low[i] | (high[i] << 8)));
+            }
+            return out;
+        };
+        const auto down    = tones({0x80, 4, 0x0F, 24, 0x00, 24});
+        const auto downRef = tones({0x80, 3, 0x0B, 24, 0x80, 4, 0x00, 24});
+        CHECK(down.size() == 2);
+        CHECK(down == downRef);
+        const auto up    = tones({0x80, 4, 0x10, 24, 0x00, 24});
+        const auto upRef = tones({0x80, 5, 0x00, 24, 0x80, 4, 0x00, 24});
+        CHECK(up.size() == 2);
+        CHECK(up == upRef);
+        // O0 の c- は音符番号 FFh になるので 0（O0 の c）に丸める。
+        CHECK(tones({0x80, 0, 0x0F, 24}) == tones({0x80, 0, 0x00, 24}));
+        CHECK(tones({0x80, 0, 0x0F, 24}).size() == 1);
+    }
+
     return check::finish("sequencer_test");
 }

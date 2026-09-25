@@ -13,6 +13,8 @@ constexpr uint16_t kPortaTie  = 0x8001;   // & ―― 閉じる距離が無い
 
 constexpr uint8_t kEvRest     = 0x0C;
 constexpr uint8_t kEvWait     = 0x0E;
+constexpr uint8_t kEvNoteDown = 0x0F;   // c- ―― 1つ下のオクターブの b
+constexpr uint8_t kEvNoteUp   = 0x10;   // b+ ―― 1つ上のオクターブの c
 constexpr uint8_t kEvOctUp    = 0x40;
 constexpr uint8_t kEvOctDown  = 0x41;
 constexpr uint8_t kEvLoopTop  = 0x42;
@@ -295,11 +297,18 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             t.gate = 0;
             return t.wait != 0;
         }
-        if (op == kEvWait || op >= 12) {      // まだ誰も鳴らさないもの
+        // c- と b+ はその1音だけオクターブを出る。走行状態のオクターブは動かさない。
+        int semitone = op;
+        if (op == kEvNoteDown) semitone = -1;
+        else if (op == kEvNoteUp) semitone = 12;
+        else if (op == kEvWait || op >= 12) { // まだ誰も鳴らさないもの
             t.gate = 0;
             return t.wait != 0;
         }
-        const uint8_t number = static_cast<uint8_t>(t.oct * 12 + op);
+        uint8_t number = static_cast<uint8_t>(t.oct * 12 + semitone);
+        // O0 の c- は FFh になり、鳴っている音が無い印と区別できない。ROM と同じく
+        // 0 に丸める（ループの中の < で走行状態が 0 まで下がったときだけ起きる）。
+        if (number == kNoNote) number = 0;
         return note(s, t, index, number);
     }
 

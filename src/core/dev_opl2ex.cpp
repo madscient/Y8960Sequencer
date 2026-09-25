@@ -19,6 +19,8 @@ constexpr uint8_t kRegFnumH   = 0xB0;
 constexpr uint8_t kRegRhythm  = 0xBD;
 constexpr uint8_t kRegFbCon   = 0xC0;
 constexpr uint8_t kRegWaveSel = 0xE0;
+constexpr uint8_t kRegTest    = 0x01;
+constexpr uint8_t kWse        = 0x20;   // 立てないと E0h-F5h は効かず、全部サインになる
 constexpr uint8_t kRegFlagCtl = 0x04;
 constexpr uint8_t kIrqReset   = 0x80;
 constexpr uint8_t kMaskAll    = 0x78;
@@ -109,9 +111,6 @@ public:
         // 割り込み線を下げっぱなしにする。
         write(kRegFlagCtl, kIrqReset);
         write(kRegFlagCtl, kMaskAll);
-        // 波形選択（E0h-F5h）は、YM3812 と同じく WSE を立てないと効かない。
-        // ROM はまだこれを書かない（doc/rom-feedback.md の C3）。
-        write(0x01, 0x20);
         write(0x07, 0x01);                    // ADPCM リセット
         write(0x08, 0x00);
         for (uint8_t r = 0x09; r <= 0x0C; ++r) write(r, 0);
@@ -124,6 +123,7 @@ public:
         fill(kRegFnumH, kChannels, 0);
         fill(kRegFbCon, kChannels, 0);
         fill(kRegWaveSel, kOpRegs, 0);
+        write(kRegTest, kWse);
         for (uint8_t ch = 0; ch < kChannels; ++ch) {
             fnh_[ch] = 0;
             volume_[ch] = 0;
