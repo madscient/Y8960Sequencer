@@ -304,5 +304,31 @@ int main() {
         CHECK(heard == kHits);
     }
 
+    // OPL2EX の波形選択が効くこと。チップは YM3812 と同じく WSE（01h の bit5）が
+    // 立っていないと E0h-F5h を無視する。キャリアだけを半波サインで鳴らすと、
+    // 効いていれば負の側がほとんど出ない。
+    {
+        SequenceBlock only;
+        only.version = 1;
+        VoiceRecord v = fmVoice();
+        v.data[16 + 1] = 0x3F;       // モジュレータは鳴らさない
+        v.data[24 + 5] = 0x01;       // キャリアは半波サイン
+        only.voices[0] = v;
+        addTrack(only, 0, Device::OPL2EX1, 0, {0x85, 0x00, 0x00, 96});
+
+        devices.resetAll();
+        Sequencer s(devices, TickRate::Hz200);
+        s.load(0, only);
+        Player p(chips, s, TickRate::Hz200, kRate);
+        rms(p, kRate / 20);                              // 前の音を流しきる
+        s.start(0, 1);
+        std::vector<float> l(kRate / 5), r(kRate / 5);
+        p.render(l.data(), r.data(), static_cast<uint32_t>(l.size()));
+        const auto [lo, hi] = std::minmax_element(l.begin() + kRate / 50, l.end());
+        std::printf("opl2ex half sine: min=%.4f max=%.4f\n", *lo, *hi);
+        CHECK(*hi > 0.005f);
+        CHECK(*lo > -0.1f * *hi);
+    }
+
     return check::finish("render_test");
 }

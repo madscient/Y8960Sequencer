@@ -109,6 +109,9 @@ public:
         // 割り込み線を下げっぱなしにする。
         write(kRegFlagCtl, kIrqReset);
         write(kRegFlagCtl, kMaskAll);
+        // 波形選択（E0h-F5h）は、YM3812 と同じく WSE を立てないと効かない。
+        // ROM はまだこれを書かない（doc/rom-feedback.md の C3）。
+        write(0x01, 0x20);
         write(0x07, 0x01);                    // ADPCM リセット
         write(0x08, 0x00);
         for (uint8_t r = 0x09; r <= 0x0C; ++r) write(r, 0);
