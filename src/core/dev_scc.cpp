@@ -23,9 +23,11 @@ constexpr uint8_t kVolMax     = 15;
 constexpr uint8_t kSavNone = 0xFF;   // まだ何も載っていない
 constexpr uint8_t kSavSeq  = 0x80;   // 控えているのが集合の索引であることの印
 
-class SccDevice final : public SoundDevice {
+class SccDevice final : public SoundDevice, private EnvelopeSink {
 public:
-    explicit SccDevice(ChipBus& bus) : bus_(bus) {}
+    SccDevice(ChipBus& bus, SoftEnvelope& envelope) : bus_(bus), env_(envelope) {
+        env_.attach(Device::SCC, this);
+    }
 
     // 波形からイネーブルまでを 0 にする。ROM はこのあと音色表の波形 0 を4ブロックに
     // 載せるが、こちらは音色表を持たない ―― ブロックは要る音色を自分で持つ
@@ -35,23 +37,34 @@ public:
             write(static_cast<uint8_t>(off), 0);
         }
         wave_.fill(kSavNone);
+        vol_.fill(0);
+        env_.resetDevice(Device::SCC);
     }
 
     // 5つのチャンネルが1バイトを分け合うので、組み立て直さず控えから読む。
     // そうすると `Y` が書いたビットもそのまま残る。
+    // ソフトウェアエンベロープがあると、キーオフで許可ビットを落とさない。リリースを
+    // 聞かせるためで、動かすのは音量レジスタのほう。落とすのはエンベロープを外すとき。
     void keyOn(uint8_t ch) override {
         if (ch >= kChannels) return;
+        if (env_.keyOn(Device::SCC, ch)) writeVolume(ch);   // アタックは 0 から
         write(kOffEnable, static_cast<uint8_t>(shadow_[kOffEnable] | (1u << ch)));
     }
 
     void keyOff(uint8_t ch) override {
         if (ch >= kChannels) return;
+        if (env_.keyOff(Device::SCC, ch)) {
+            writeVolume(ch);
+            return;
+        }
         write(kOffEnable, static_cast<uint8_t>(shadow_[kOffEnable] & ~(1u << ch)));
     }
 
     void setVolume(uint8_t ch, uint8_t loudness) override {
         if (ch >= kChannels) return;
-        write(static_cast<uint8_t>(kOffVol + ch), static_cast<uint8_t>((loudness >> 3) & kVolMax));
+        vol_[ch] = static_cast<uint8_t>((loudness >> 3) & kVolMax);
+        env_.setV(Device::SCC, ch, vol_[ch]);
+        writeVolume(ch);
     }
 
     // レジスタが持つのは分周値から 1 引いた値。表を分け合う他の2つとの違いはそこだけ。
@@ -93,6 +106,21 @@ private:
         bus_.write(Device::SCC, offset, value);
     }
 
+    // エンベロープがあればその値、無ければ V。
+    void writeVolume(uint8_t ch) {
+        uint8_t level = 0;
+        if (!env_.output(Device::SCC, ch, level)) level = vol_[ch];
+        write(static_cast<uint8_t>(kOffVol + ch), level);
+    }
+
+    void envRefresh(uint8_t ch) override { writeVolume(ch); }
+    // SCC のキーは許可ビット。`Y` が立てたビットもキーとして読む（ROM の ENVSYNC）。
+    uint8_t envSync(uint8_t ch) override {
+        const bool key = (shadow_[kOffEnable] >> ch) & 1;
+        return static_cast<uint8_t>((key ? SoftEnvelope::kKey : 0) | vol_[ch]);
+    }
+    void envReleased(uint8_t ch) override { keyOff(ch); }
+
     // チャンネル3と4はブロックを分け合うので、載せたことを両方に書く。
     void markShared(uint8_t ch, uint8_t mark) {
         if (ch < kWaveBlocks - 1) return;
@@ -109,14 +137,18 @@ private:
     }
 
     ChipBus& bus_;
+    SoftEnvelope& env_;
     std::array<uint8_t, 256> shadow_{};
     std::array<uint8_t, kChannels> wave_{};
+    // V の控え。チップの音量レジスタはエンベロープの値で上書きされるので別に持つ。
+    // `Y` で音量レジスタを書いても、ここは変わらない（ROM も同じ）。
+    std::array<uint8_t, kChannels> vol_{};
 };
 
 } // namespace
 
-std::unique_ptr<SoundDevice> makeSccDevice(ChipBus& bus) {
-    return std::make_unique<SccDevice>(bus);
+std::unique_ptr<SoundDevice> makeSccDevice(ChipBus& bus, SoftEnvelope& envelope) {
+    return std::make_unique<SccDevice>(bus, envelope);
 }
 
 } // namespace y8960

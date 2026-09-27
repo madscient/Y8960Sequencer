@@ -1,0 +1,237 @@
+#include "softenv.h"
+
+namespace y8960 {
+
+namespace {
+
+constexpr uint8_t kRateMax  = 32;
+constexpr uint8_t kLevelMax = 15;
+constexpr uint8_t kVMask    = 0x0F;
+
+// AR・DR・RR の 0-32 を、コマ（bit7-4）と変化（bit3-0）に。MuSICA のエディタが
+// 受け付ける値とコンパイラが書くバイトで、env.asm の ENVRTAB と同じもの。
+constexpr uint8_t kRateTable[kRateMax + 1] = {
+    0xF1, 0xC1, 0xA1, 0x91, 0x81, 0x71, 0x61, 0x51,
+    0x41, 0x72, 0x31, 0x52, 0x21, 0x53, 0x32, 0x43,
+    0x11, 0x34, 0x23, 0x35, 0x12, 0x25, 0x13, 0x27,
+    0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1C,
+    0x1F,
+};
+
+uint8_t rateByte(uint8_t value) {
+    return kRateTable[value > kRateMax ? kRateMax : value];
+}
+
+// チャンネルの並びは ENVMAP と同じ。tick() が書き直させる順もこれになる。
+struct ChannelMap {
+    Device  device;
+    uint8_t channel;
+};
+constexpr ChannelMap kMap[] = {
+    {Device::SSGS, 0},  {Device::SSGS, 1},  {Device::SSGS, 2},
+    {Device::SSGS, 3},  {Device::SSGS, 4},  {Device::SSGS, 5},
+    {Device::DCSG1, 0}, {Device::DCSG1, 1}, {Device::DCSG1, 2}, {Device::DCSG1, 3},
+    {Device::DCSG2, 0}, {Device::DCSG2, 1}, {Device::DCSG2, 2}, {Device::DCSG2, 3},
+    {Device::SCC, 0},   {Device::SCC, 1},   {Device::SCC, 2},   {Device::SCC, 3}, {Device::SCC, 4},
+};
+
+} // namespace
+
+int SoftEnvelope::index(Device device, uint8_t ch) {
+    switch (device) {
+    case Device::SSGS:  return ch < 6 ? ch : -1;
+    case Device::DCSG1: return ch < 4 ? 6 + ch : -1;
+    case Device::DCSG2: return ch < 4 ? 10 + ch : -1;
+    case Device::SCC:   return ch < 5 ? 14 + ch : -1;
+    default:            return -1;
+    }
+}
+
+void SoftEnvelope::attach(Device device, EnvelopeSink* sink) {
+    sinks_[static_cast<size_t>(device)] = sink;
+}
+
+void SoftEnvelope::reset() {
+    for (Channel& c : channels_) c = Channel{};
+    moving_ = false;
+    acc_ = 0;
+}
+
+// ROM は状態の4バイトだけを消し、パラメータは残す。次に選ばれるときに読み直すので
+// 残っていても効かない。
+void SoftEnvelope::resetDevice(Device device) {
+    for (int i = 0; i < kChannels; ++i) {
+        if (kMap[i].device != device) continue;
+        Channel& c = channels_[static_cast<size_t>(i)];
+        c.phase = Phase::None;
+        c.level = 0;
+        c.count = 0;
+        c.vol   = 0;
+    }
+}
+
+// キーと V は、エンベロープを持たないチャンネルのものも控える。ROM は持つチャンネルが
+// 1つも無いあいだ控えを省くが、選ばれるときには必ずドライバの控えから読み直すので、
+// 結果は同じ。
+bool SoftEnvelope::keyOn(Device device, uint8_t ch) {
+    const int i = index(device, ch);
+    if (i < 0) return false;
+    Channel& c = channels_[static_cast<size_t>(i)];
+    c.vol = static_cast<uint8_t>(c.vol | kKey);
+    if (c.phase == Phase::None) return false;
+    attack(c);
+    return true;
+}
+
+bool SoftEnvelope::keyOff(Device device, uint8_t ch) {
+    const int i = index(device, ch);
+    if (i < 0) return false;
+    Channel& c = channels_[static_cast<size_t>(i)];
+    c.vol = static_cast<uint8_t>(c.vol & ~kKey);
+    if (c.phase == Phase::None) return false;
+    // リリースは SL からではなく、いまの値から。もう下がっているものはそのまま。
+    if (c.phase < Phase::Release) {
+        c.phase = Phase::Release;
+        rate(c, c.rr);
+        moving_ = true;
+    }
+    return true;
+}
+
+bool SoftEnvelope::setV(Device device, uint8_t ch, uint8_t v) {
+    const int i = index(device, ch);
+    if (i < 0) return false;
+    Channel& c = channels_[static_cast<size_t>(i)];
+    c.vol = static_cast<uint8_t>((c.vol & kKey) | (v & kVMask));
+    return c.phase != Phase::None;
+}
+
+void SoftEnvelope::none(Device device, uint8_t ch) {
+    const int i = index(device, ch);
+    if (i < 0) return;
+    channels_[static_cast<size_t>(i)].phase = Phase::None;
+}
+
+// V は引き算で効く。V15 なら値がそのまま出る。
+bool SoftEnvelope::output(Device device, uint8_t ch, uint8_t& level) const {
+    const int i = index(device, ch);
+    if (i < 0) return false;
+    const Channel& c = channels_[static_cast<size_t>(i)];
+    if (c.phase == Phase::None) return false;
+    const int v = static_cast<int>(c.level) + (c.vol & kVMask) - kLevelMax;
+    level = static_cast<uint8_t>(v < 0 ? 0 : v);
+    return true;
+}
+
+// 無しから選ぶと、キーが押されていればその場でアタック、離れていれば次のキーオンを
+// 待つ。別のエンベロープへ替えると、段と値と残りのコマを保って新しい速さで続く。
+// 0 はその場で V の音量に戻す。
+void SoftEnvelope::select(Device device, uint8_t ch, uint8_t number, const EnvelopeRecord& record) {
+    const int i = index(device, ch);
+    if (i < 0) return;
+    Channel& c = channels_[static_cast<size_t>(i)];
+    EnvelopeSink* sink = sinks_[static_cast<size_t>(device)];
+
+    if (number == 0) {
+        if (c.phase == Phase::None) return;
+        c.phase = Phase::None;
+        refresh(i);
+        if (!(c.vol & kKey) && sink) sink->envReleased(ch);
+        return;
+    }
+    if (number >= kEnvelopeCount) return;   // コンパイラは通さない
+
+    c.ar = rateByte(record.ar);
+    c.dr = rateByte(record.dr);
+    c.sl = record.sl > kLevelMax ? kLevelMax : record.sl;
+    c.rr = rateByte(record.rr);
+
+    if (c.phase == Phase::None) {
+        if (sink) c.vol = static_cast<uint8_t>(sink->envSync(ch) & (kKey | kVMask));
+        if (c.vol & kKey) {
+            attack(c);
+        } else {
+            c.phase = Phase::Stop;
+            c.level = 0;
+        }
+    }
+    if (sink) sink->envChosen(ch);
+    refresh(i);
+}
+
+// 1/60 秒を1コマとし、割り込みの周期によらず 60 コマ／秒で進む。増分は割り込み1回が
+// 1コマの何倍かで、1コマ進む割り込みも、2コマや 0 コマの割り込みもある。
+// ROM は何かが動いているあいだしかここを呼ばないので、端数もそのあいだしか進まない。
+void SoftEnvelope::tick(TickRate rate) {
+    if (!moving_) return;
+    const TickIncrement inc = envelopeIncrement(rate);
+    const uint32_t sum = static_cast<uint32_t>(acc_) + inc.frac;
+    acc_ = static_cast<uint16_t>(sum & 0xFFFF);
+    uint32_t steps = inc.whole + (sum >> 16);
+    while (steps-- > 0) step();
+}
+
+uint8_t SoftEnvelope::rate(Channel& c, uint8_t packed) {
+    c.count = static_cast<uint8_t>(packed >> 4);
+    return static_cast<uint8_t>(packed & 0x0F);
+}
+
+void SoftEnvelope::attack(Channel& c) {
+    c.phase = Phase::Attack;
+    c.level = 0;
+    rate(c, c.ar);
+    moving_ = true;
+}
+
+// 動いているものが無いのが普段の状態。印は1コマごとに下ろし、まだ動いているものが
+// 立て直す。
+void SoftEnvelope::step() {
+    if (!moving_) return;
+    moving_ = false;
+    for (int i = 0; i < kChannels; ++i) {
+        Channel& c = channels_[static_cast<size_t>(i)];
+        if (c.phase != Phase::Attack && c.phase != Phase::Decay && c.phase != Phase::Release) continue;
+        moving_ = true;
+        if (--c.count != 0) continue;
+        advance(c, i);
+    }
+}
+
+// 勤労5号の順序。2つの境目も同じにしてある ―― アタックは 15 に着いたところで終わり、
+// ディケイは SL と同じ値ならもう1段下げ、SL を下回る段で SL にそろえて終わる。
+void SoftEnvelope::advance(Channel& c, int index) {
+    if (c.phase == Phase::Attack) {
+        const int next = c.level + rate(c, c.ar);
+        if (next < kLevelMax) {
+            c.level = static_cast<uint8_t>(next);
+        } else {
+            c.phase = Phase::Decay;
+            rate(c, c.dr);
+            c.level = kLevelMax;
+        }
+    } else if (c.phase == Phase::Decay) {
+        const int next = c.level - rate(c, c.dr);
+        if (next >= 0 && next >= c.sl) {
+            c.level = static_cast<uint8_t>(next);
+        } else {
+            c.phase = Phase::Sustain;
+            c.level = c.sl;
+        }
+    } else {
+        const int next = c.level - rate(c, c.rr);
+        if (next >= 0) {
+            c.level = static_cast<uint8_t>(next);
+        } else {
+            c.phase = Phase::Stop;
+            c.level = 0;
+        }
+    }
+    refresh(index);
+}
+
+void SoftEnvelope::refresh(int index) {
+    const ChannelMap& m = kMap[index];
+    if (EnvelopeSink* sink = sinks_[static_cast<size_t>(m.device)]) sink->envRefresh(m.channel);
+}
+
+} // namespace y8960

@@ -7,9 +7,10 @@
 
 namespace y8960 {
 
-std::unique_ptr<SoundDevice> makeSsgsDevice(ChipBus& bus);
-std::unique_ptr<SoundDevice> makeDcsgDevice(ChipBus& bus, Device which);
-std::unique_ptr<SoundDevice> makeSccDevice(ChipBus& bus);
+// この3つはソフトウェアエンベロープを持ち、作るときに自分を envelope に結び付ける。
+std::unique_ptr<SoundDevice> makeSsgsDevice(ChipBus& bus, SoftEnvelope& envelope);
+std::unique_ptr<SoundDevice> makeDcsgDevice(ChipBus& bus, Device which, SoftEnvelope& envelope);
+std::unique_ptr<SoundDevice> makeSccDevice(ChipBus& bus, SoftEnvelope& envelope);
 std::unique_ptr<SoundDevice> makeOpllexDevice(ChipBus& bus, Device which);
 std::unique_ptr<SoundDevice> makeOpl2exDevice(ChipBus& bus, Device which);
 

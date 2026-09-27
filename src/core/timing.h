@@ -31,6 +31,10 @@ constexpr uint8_t kDefaultTempo = 120;
 
 TickIncrement tickIncrement(uint8_t tempo, TickRate rate);
 
+// ソフトウェアエンベロープの 1/60 秒のコマが、割り込み1回でいくつ進むか。
+// 65536 × 60 / 割り込み周波数を、ROM と同じく TICKKTAB × 75 / 2 で作る（env.asm の ENVKSET）。
+TickIncrement envelopeIncrement(TickRate rate);
+
 // 割り込みの時刻をサンプル数に直す。端数を持ち越すので、長く鳴らしてもずれない。
 class InterruptClock {
 public:

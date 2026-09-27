@@ -31,6 +31,7 @@ constexpr uint8_t kEvRhyVol    = 0xA9;
 constexpr uint8_t kEvRhyAccVol = 0xAA;
 constexpr uint8_t kEvSsgShape  = 0xB0;
 constexpr uint8_t kEvSsgPan    = 0xB1;
+constexpr uint8_t kEvEnvelope  = 0xB2;
 constexpr uint8_t kEvNoteAbs   = 0xC0;
 constexpr uint8_t kEvRhythm    = 0xC8;
 constexpr uint8_t kEvBend      = 0xD0;
@@ -139,7 +140,10 @@ bool Sequencer::finished() const {
     return true;
 }
 
+// ソフトウェアエンベロープは拍ではなく秒で進み、シーケンスが止まってもリリースが
+// 続くので、シーケンスとは別に割り込みごとに進める（ROM の SEQTICK と同じ順）。
 void Sequencer::interrupt() {
+    devices_.envelopeTick(rate_);
     // ROM と同じく番号の大きいほうから。
     for (int i = kSequenceCount - 1; i >= 0; --i) step(sequences_[static_cast<size_t>(i)]);
 }
@@ -225,6 +229,7 @@ void Sequencer::rewind(Sequence& s) {
         // ブロックが持つレコード（`85`）を待つ（doc/rom-feedback.md の B1）。
         device(t).setVoice(t.channel, kDefaultVoice);
         volumeOut(s, t);
+        devices_.setEnvelope(t.device, t.channel, 0, EnvelopeRecord{});
     }
     s.first = true;
     s.acc   = 0;
@@ -352,6 +357,14 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
         case kEvRhyAccVol: t.rhythmAccentLevel = arg; device(t).rhythmVolume(true, arg); break;
         case kEvSsgShape:  device(t).ssgEnv(SsgEnv::Shape, t.channel, arg); break;
         case kEvSsgPan:    device(t).ssgEnv(SsgEnv::Pan, t.channel, arg); break;
+        case kEvEnvelope: {
+            // ブロックに無い番号は中身が 0 のものとして選ぶ。ROM も写していない枠を
+            // 0 として読む。鳴り方は保証されていない。
+            static const EnvelopeRecord kEmpty{};
+            const EnvelopeRecord& rec = (s.block && arg < kEnvelopeCount) ? s.block->envelopes[arg] : kEmpty;
+            devices_.setEnvelope(t.device, t.channel, arg, rec);
+            break;
+        }
         default: break;
         }
         return false;

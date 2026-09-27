@@ -34,6 +34,11 @@ TickIncrement tickIncrement(uint8_t tempo, TickRate rate) {
     return {static_cast<uint8_t>(half >> 16), static_cast<uint16_t>(half & 0xFFFF)};
 }
 
+TickIncrement envelopeIncrement(TickRate rate) {
+    const uint32_t v = (kTickK[static_cast<int>(rate)] * 75u) >> 1;
+    return {static_cast<uint8_t>(v >> 16), static_cast<uint16_t>(v & 0xFFFF)};
+}
+
 InterruptClock::InterruptClock(TickRate rate, uint32_t sampleRate) {
     const InterruptPeriod p = interruptPeriod(rate);
     step_ = p.num * sampleRate;

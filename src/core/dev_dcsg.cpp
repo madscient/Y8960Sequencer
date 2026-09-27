@@ -27,9 +27,12 @@ constexpr uint8_t kSavKey    = 0x80;
 constexpr uint8_t kSavFollow = 0x40;
 constexpr uint8_t kSavLevel  = 0x0F;
 
-class DcsgDevice final : public SoundDevice {
+class DcsgDevice final : public SoundDevice, private EnvelopeSink {
 public:
-    DcsgDevice(ChipBus& bus, Device which) : bus_(bus), which_(which) {}
+    DcsgDevice(ChipBus& bus, Device which, SoftEnvelope& envelope)
+        : bus_(bus), which_(which), env_(envelope) {
+        env_.attach(which_, this);
+    }
 
     void reset() override {
         for (uint8_t ch = 0; ch < kChannels; ++ch) {
@@ -39,16 +42,19 @@ public:
         }
         // 白色ノイズのいちばん速いレート。
         out(static_cast<uint8_t>(kLatch | (kNoiseCh << kChShift) | kNoiseWhite));
+        env_.resetDevice(which_);
     }
 
     void keyOn(uint8_t ch) override {
         if (ch >= kChannels) return;
+        env_.keyOn(which_, ch);
         state_[ch] = static_cast<uint8_t>(state_[ch] | kSavKey);
         writeAttenuation(ch);
     }
 
     void keyOff(uint8_t ch) override {
         if (ch >= kChannels) return;
+        env_.keyOff(which_, ch);
         state_[ch] = static_cast<uint8_t>(state_[ch] & ~kSavKey);
         writeAttenuation(ch);
     }
@@ -56,6 +62,7 @@ public:
     void setVolume(uint8_t ch, uint8_t loudness) override {
         if (ch >= kChannels) return;
         const uint8_t v = static_cast<uint8_t>((loudness >> 3) & kVolMax);
+        env_.setV(which_, ch, v);
         state_[ch] = static_cast<uint8_t>((state_[ch] & ~kSavLevel) | v);
         writeAttenuation(ch);
     }
@@ -101,12 +108,21 @@ private:
         bus_.write(which_, 0, byte);
     }
 
+    // ソフトウェアエンベロープがあれば、キーが上がったあと（リリース）もそちらが決める。
     void writeAttenuation(uint8_t ch) {
-        const uint8_t sav = state_[ch];
-        const uint8_t att = (sav & kSavKey) ? static_cast<uint8_t>(kAttOff - (sav & kSavLevel))
-                                            : kAttOff;
+        uint8_t level = 0;
+        uint8_t att = kAttOff;
+        if (env_.output(which_, ch, level)) {
+            att = static_cast<uint8_t>(kAttOff - level);
+        } else if (state_[ch] & kSavKey) {
+            att = static_cast<uint8_t>(kAttOff - (state_[ch] & kSavLevel));
+        }
         out(static_cast<uint8_t>(kLatch | kVolumeBit | (ch << kChShift) | att));
     }
+
+    void envRefresh(uint8_t ch) override { writeAttenuation(ch); }
+    uint8_t envSync(uint8_t ch) override { return state_[ch]; }
+    void envReleased(uint8_t ch) override { keyOff(ch); }
 
     // 下位4ビットはラッチバイトに乗り、残り6ビットは行き先を言わないバイトで続く。
     void writeTone(uint8_t ch, uint16_t divisor) {
@@ -129,14 +145,15 @@ private:
 
     ChipBus& bus_;
     Device   which_;
+    SoftEnvelope& env_;
     std::array<uint8_t, kRegs> shadow_{};
     std::array<uint8_t, kChannels> state_{};
 };
 
 } // namespace
 
-std::unique_ptr<SoundDevice> makeDcsgDevice(ChipBus& bus, Device which) {
-    return std::make_unique<DcsgDevice>(bus, which);
+std::unique_ptr<SoundDevice> makeDcsgDevice(ChipBus& bus, Device which, SoftEnvelope& envelope) {
+    return std::make_unique<DcsgDevice>(bus, which, envelope);
 }
 
 } // namespace y8960

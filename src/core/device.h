@@ -4,6 +4,7 @@
 
 #include "block.h"
 #include "chips.h"
+#include "softenv.h"
 
 #include <array>
 #include <cstdint>
@@ -58,11 +59,21 @@ public:
     ~DeviceSet();
 
     SoundDevice& operator[](Device d) { return *devices_[static_cast<size_t>(d)]; }
+    // MINIT にあたる。ソフトウェアエンベロープの端数も捨てる。
     void resetAll();
     // 表そのものは呼び出し側が持ち続けること。
     void setAdpcmDirectory(const AdpcmVoiceFile* directory);
 
+    // `B2`。ソフトウェアエンベロープを持たないデバイスは無視する。
+    void setEnvelope(Device d, uint8_t ch, uint8_t number, const EnvelopeRecord& record) {
+        envelope_.select(d, ch, number, record);
+    }
+    // 割り込み1回ぶん、ソフトウェアエンベロープを進める。シーケンスより先に呼ぶこと。
+    void envelopeTick(TickRate rate) { envelope_.tick(rate); }
+
 private:
+    // ドライバより先に作り、後で壊す。ドライバが参照を持つため。
+    SoftEnvelope envelope_;
     std::array<std::unique_ptr<SoundDevice>, kDeviceCount> devices_;
 };
 

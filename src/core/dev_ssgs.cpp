@@ -32,9 +32,11 @@ constexpr uint8_t kVolEnv      = 0x10;
 constexpr uint8_t kVolMax      = 15;
 constexpr uint8_t kSavKey      = 0x80;
 
-class SsgsDevice final : public SoundDevice {
+class SsgsDevice final : public SoundDevice, private EnvelopeSink {
 public:
-    explicit SsgsDevice(ChipBus& bus) : bus_(bus) {}
+    SsgsDevice(ChipBus& bus, SoftEnvelope& envelope) : bus_(bus), env_(envelope) {
+        env_.attach(Device::SSGS, this);
+    }
 
     void reset() override {
         for (uint8_t ch = 0; ch < kChannels; ++ch) {
@@ -56,16 +58,19 @@ public:
             write(ch, kRegEnable, kNoiseOff);
             enable_[set] = kNoiseOff;
         }
+        env_.resetDevice(Device::SSGS);
     }
 
     void keyOn(uint8_t ch) override {
         if (ch >= kChannels) return;
+        env_.keyOn(Device::SSGS, ch);
         level_[ch] = static_cast<uint8_t>(level_[ch] | kSavKey);
         writeLevel(ch);
     }
 
     void keyOff(uint8_t ch) override {
         if (ch >= kChannels) return;
+        env_.keyOff(Device::SSGS, ch);
         level_[ch] = static_cast<uint8_t>(level_[ch] & ~kSavKey);
         writeLevel(ch);
     }
@@ -73,6 +78,7 @@ public:
     void setVolume(uint8_t ch, uint8_t loudness) override {
         if (ch >= kChannels) return;
         const uint8_t v = static_cast<uint8_t>((loudness >> 3) & kVolMax);
+        env_.setV(Device::SSGS, ch, v);
         level_[ch] = static_cast<uint8_t>((level_[ch] & ~kVolMax) | v);
         writeLevel(ch);
     }
@@ -92,6 +98,7 @@ public:
     void setVoice(uint8_t ch, uint8_t number) override {
         if (ch >= kChannels) return;
         if (number & kVolEnv) {
+            env_.none(Device::SSGS, ch);             // ハードウェアのほうが後から来た
             level_[ch] = static_cast<uint8_t>((level_[ch] & kSavKey) |
                                               (number & (kVolEnv | kVolMax)));
         } else {
@@ -152,11 +159,21 @@ private:
     }
 
     // キーが上がっていればレベルは 0。エンベロープのスイッチも一緒に落ちる。
+    // ソフトウェアエンベロープがあれば、キーが上がったあと（リリース）もそちらが決める。
     void writeLevel(uint8_t ch) {
-        const uint8_t sav = level_[ch];
-        const uint8_t out = (sav & kSavKey) ? static_cast<uint8_t>(sav & (kVolEnv | kVolMax)) : 0;
+        uint8_t out = 0;
+        if (!env_.output(Device::SSGS, ch, out)) {
+            const uint8_t sav = level_[ch];
+            out = (sav & kSavKey) ? static_cast<uint8_t>(sav & (kVolEnv | kVolMax)) : 0;
+        }
         write(ch, static_cast<uint8_t>(kRegVol + subChannel(ch)), out);
     }
+
+    void envRefresh(uint8_t ch) override { writeLevel(ch); }
+    uint8_t envSync(uint8_t ch) override { return level_[ch]; }
+    // ソフトウェアのほうが後から来た。トーンとノイズの選択はそのまま。
+    void envChosen(uint8_t ch) override { level_[ch] = static_cast<uint8_t>(level_[ch] & ~kVolEnv); }
+    void envReleased(uint8_t ch) override { keyOff(ch); }
 
     // Y の書き込みを、ドライバがバイトを組み立てる控えにも入れる。キーは演奏側のもの。
     void ySave(uint8_t reg, uint8_t value) {
@@ -176,6 +193,7 @@ private:
     }
 
     ChipBus& bus_;
+    SoftEnvelope& env_;
     std::array<uint8_t, 0x40> shadow_{};
     std::array<uint8_t, kChannels> level_{};
     std::array<uint8_t, 2> enable_{};
@@ -183,8 +201,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<SoundDevice> makeSsgsDevice(ChipBus& bus) {
-    return std::make_unique<SsgsDevice>(bus);
+std::unique_ptr<SoundDevice> makeSsgsDevice(ChipBus& bus, SoftEnvelope& envelope) {
+    return std::make_unique<SsgsDevice>(bus, envelope);
 }
 
 } // namespace y8960

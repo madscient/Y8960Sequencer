@@ -204,6 +204,24 @@ int main() {
     }
     CHECK(!loads(block({{0x00, track(0, 1, 10)}, {0x00, track(1, 1, 6)}})));
 
+    // チャンク 04（ソフトウェアエンベロープ）。値の範囲は見ず、番号と長さだけを見る。
+    {
+        const Bytes b = block({{0x00, track(0, 0, 0)}, {0x04, Bytes{5, 16, 20, 8, 10}},
+                               {0x04, Bytes{31, 40, 0, 99, 32}}});
+        SequenceBlock s;
+        std::string err;
+        CHECK(load(b, s, err));
+        CHECK(s.envelopes[5].present);
+        CHECK(s.envelopes[5].ar == 16 && s.envelopes[5].dr == 20);
+        CHECK(s.envelopes[5].sl == 8 && s.envelopes[5].rr == 10);
+        CHECK(s.envelopes[31].present && s.envelopes[31].ar == 40 && s.envelopes[31].sl == 99);
+        CHECK(!s.envelopes[1].present);
+    }
+    CHECK(!loads(block({{0x00, track(0, 0, 0)}, {0x04, Bytes{0, 1, 1, 1, 1}}})));
+    CHECK(!loads(block({{0x00, track(0, 0, 0)}, {0x04, Bytes{32, 1, 1, 1, 1}}})));
+    CHECK(!loads(block({{0x00, track(0, 0, 0)}, {0x04, Bytes{1, 1, 1, 1}}})));
+    CHECK(!loads(block({{0x00, track(0, 0, 0)}, {0x04, Bytes{1, 1, 1, 1, 1, 1}}})));
+
     // チャンク見出しの途中で切れている
     {
         Bytes b = block({{0x00, track(0, 0, 0)}});

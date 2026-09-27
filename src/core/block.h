@@ -30,6 +30,8 @@ constexpr int kMaxTrackBytes = 2048;   // 終端の FF を含む
 constexpr int kAdpcmFiles    = 64;     // ボイスファイル番号 0-63
 constexpr uint16_t kAdpcmPages = 1024; // ADPCM メモリ 256KB を 256 バイトで割った数
 
+constexpr int kEnvelopeCount = 32;     // `B2` の番号 0-31。0 は無しでレコードを持たない
+
 constexpr uint8_t kChannelAdpcm  = 9;
 constexpr uint8_t kChannelRhythm = 10;
 
@@ -56,12 +58,23 @@ struct AdpcmVoiceFile {
     uint16_t sampleRateHz  = 0;
 };
 
+// チャンク `04`。ソフトウェアエンベロープ1つ。値の範囲は検査しない ―― ROM は範囲を
+// 超えたレートを 32、レベルを 15 として鳴らす（bytecode.md「チャンク」）。
+struct EnvelopeRecord {
+    bool    present = false;
+    uint8_t ar = 0;
+    uint8_t dr = 0;
+    uint8_t sl = 0;
+    uint8_t rr = 0;
+};
+
 struct SequenceBlock {
     uint8_t                                   version = 0;
     std::array<TrackData, kTrackCount>        tracks{};
     // 0-31 が `85` の指す音色集合、32-34 が OPL2EX のリズム音色。
     std::array<VoiceRecord, kVoiceSlots>      voices{};
     std::array<AdpcmVoiceFile, kAdpcmFiles>   adpcm{};
+    std::array<EnvelopeRecord, kEnvelopeCount> envelopes{};
     // 捨てたチャンク 03 の理由。ブロックは拒まれない（bytecode.md「チャンク」）。
     std::vector<std::string>                  warnings;
     // デバイスごとのリズムモード。ブロックは持たないので、割り当てから推定する。

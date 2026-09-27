@@ -17,9 +17,11 @@ constexpr uint8_t kChunkTrack   = 0x00;
 constexpr uint8_t kChunkFmVoice = 0x01;
 constexpr uint8_t kChunkSccWave = 0x02;
 constexpr uint8_t kChunkAdpcm   = 0x03;
+constexpr uint8_t kChunkEnvelope = 0x04;
 constexpr uint8_t kChunkSkippableFirst = 0x80;
 
 constexpr size_t kAdpcmChunkSize = 7;
+constexpr size_t kEnvelopeChunkSize = 5;
 constexpr uint16_t kAdpcmRateMin = 1800;
 constexpr uint16_t kAdpcmRateMax = 16000;
 
@@ -180,6 +182,22 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 }
             }
             if (!why.empty()) out.warnings.push_back("ADPCM voice file entry: " + why);
+        } else if (type == kChunkEnvelope) {
+            // チャンク 03 と違い、壊れていればブロックごと拒む（bytecode.md「チャンク」）。
+            if (len != kEnvelopeChunkSize) {
+                error = "envelope chunk length " + std::to_string(len) + " is not 5";
+                return false;
+            }
+            if (p[0] == 0 || p[0] >= kEnvelopeCount) {
+                error = "envelope number " + std::to_string(p[0]) + " is out of range";
+                return false;
+            }
+            EnvelopeRecord& e = out.envelopes[p[0]];
+            e.present = true;
+            e.ar = p[1];
+            e.dr = p[2];
+            e.sl = p[3];
+            e.rr = p[4];
         } else if (type < kChunkSkippableFirst) {
             error = "unknown chunk type " + hex2(type);
             return false;

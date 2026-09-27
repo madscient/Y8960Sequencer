@@ -15,6 +15,7 @@ add_library(y8960core STATIC
     platform.cpp
     player.cpp
     sequencer.cpp
+    softenv.cpp
     timing.cpp
     wavwriter.cpp
 )
