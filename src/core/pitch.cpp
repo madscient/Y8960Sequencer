@@ -52,14 +52,15 @@ OplPitch oplPitch(bool isOpl2, uint8_t note, int16_t bendSteps) {
         out.outOfRange = true;
         return out;
     }
+    // ブロックが 0 より下（O0 C〜F+ と、ベンドでさらに下げたもの）は、足りない
+    // ブロックの数だけ F-Number を余計にシフトし、ブロックは 0 にする。ROM の
+    // FNUM_OPLOF と同じく範囲外の印は立てない ―― 下げるほど粗くなり、やがて 0 になる。
+    int total = shift;
     if (block < 0) {
-        // O1 より下。間違った音程より無音のほうがまし。
-        out.fnum = 0;
-        out.block = 0;
-        out.outOfRange = true;
-        return out;
+        total -= block;
+        block = 0;
     }
-    out.fnum  = shiftRound(entry & kFnumStored, shift);
+    out.fnum  = shiftRound(entry & kFnumStored, total);
     out.block = static_cast<uint8_t>(block);
     return out;
 }
