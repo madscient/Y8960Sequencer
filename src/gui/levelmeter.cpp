@@ -16,6 +16,8 @@ constexpr float kBarGap    = 6.0f;
 constexpr float kBarHeight = 72.0f;
 constexpr float kLabelH    = 16.0f;
 constexpr float kRowGap    = 6.0f;
+constexpr float kLeverWidth = 36.0f;
+constexpr float kLeverGap   = 10.0f;
 
 // LED のセグメントと、下から何本目までを緑・黄とするか（残りが赤）。
 constexpr int   kSegments   = 14;
@@ -171,7 +173,11 @@ uint16_t MuteState::trackMask(const SequenceBlock& block) const {
     return mask;
 }
 
-bool LevelMeter::draw(MuteState& mutes) const {
+float gainFromDb(float db) {
+    return (db <= kGainDbMin) ? 0.0f : std::pow(10.0f, db / 20.0f);
+}
+
+bool LevelMeter::draw(MuteState& mutes, std::array<float, kDeviceCount>& gainDb) const {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float segH = (kBarHeight - kSegGap * (kSegments - 1)) / kSegments;
     bool changed = false;
@@ -182,7 +188,22 @@ bool LevelMeter::draw(MuteState& mutes) const {
         if (ImGui::Checkbox("Mute", &mutes.chip[d])) changed = true;
         ImGui::SameLine();
         ImGui::SeparatorText(kBandNames[d]);
-        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const ImVec2 band = ImGui::GetCursorScreenPos();
+
+        // 下端は -inf（0 倍）として扱う。右クリックで 0 dB に戻す。
+        float& db = gainDb[d];
+        ImGui::VSliderFloat("##gain", ImVec2(kLeverWidth, kBarHeight), &db, kGainDbMin, kGainDbMax,
+                            (db <= kGainDbMin) ? "-inf" : "%+.0f", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) db = 0.0f;
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s gain (dB). Right-click to reset.", kBandNames[d]);
+        }
+        const char* unit = "dB";
+        const ImVec2 unitSize = ImGui::CalcTextSize(unit);
+        dl->AddText(ImVec2(band.x + (kLeverWidth - unitSize.x) * 0.5f, band.y + kBarHeight + 2.0f),
+                    IM_COL32(200, 200, 200, 255), unit);
+
+        const ImVec2 origin(band.x + kLeverWidth + kLeverGap, band.y);
 
         int column = 0;
         for (size_t s = 0; s < kActivitySlots; ++s) {
@@ -244,8 +265,8 @@ bool LevelMeter::draw(MuteState& mutes) const {
         }
 
         // 直接描いたぶんカーソルを進める。
-        ImGui::SetCursorScreenPos(origin);
-        ImGui::Dummy(ImVec2(static_cast<float>(column) * (kBarWidth + kBarGap),
+        ImGui::SetCursorScreenPos(band);
+        ImGui::Dummy(ImVec2(kLeverWidth + kLeverGap + static_cast<float>(column) * (kBarWidth + kBarGap),
                             kBarHeight + kLabelH + kRowGap));
         ImGui::PopID();
     }

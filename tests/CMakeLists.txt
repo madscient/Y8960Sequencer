@@ -4,6 +4,12 @@ foreach(_t block_test freqtab_test mute_test pcmfile_test pitch_test sequencer_t
     add_test(NAME ${_t} COMMAND ${_t})
 endforeach()
 
+# プレイリストとフェードは SDL に触らないので、ソースを直接組み込む。
+add_executable(playlist_test playlist_test.cpp ${PROJECT_SOURCE_DIR}/src/app/playlist.cpp)
+target_include_directories(playlist_test PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(playlist_test PRIVATE y8960core)
+add_test(NAME playlist_test COMMAND playlist_test)
+
 # コンソールと画面に出る文字列は ASCII に収める（doc/plan.md）。Python があるときだけ。
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)

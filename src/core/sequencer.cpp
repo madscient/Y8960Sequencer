@@ -81,6 +81,7 @@ void Sequencer::start(int sequence, uint8_t repeat) {
     if (mask == 0) return;
 
     s.repeat  = repeat;
+    s.passes  = 0;
     s.active  = mask;
     s.current = s.volume;
 
@@ -198,6 +199,7 @@ void Sequencer::tracks(Sequence& s) {
 }
 
 void Sequencer::passEnd(Sequence& s) {
+    ++s.passes;
     if (s.repeat != 0) {
         --s.repeat;
         if (s.repeat == 0) {

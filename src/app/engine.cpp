@@ -4,6 +4,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+
 namespace y8960 {
 
 namespace {
@@ -69,12 +71,57 @@ void PlaybackEngine::load(const SequenceBlock& block, const PcmFile* pcm) {
     rebuildPlayer();
     sequencer_->load(0, block_);
     applyMutes();
+    fadeAfter_ = 0;
+    fadeMode_  = false;
+    fadeEnd_   = false;
+    fader_.reset();
     loaded_ = true;
 }
 
 void PlaybackEngine::play(uint8_t repeat) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!loaded_) return;
+    fadeAfter_ = 0;
+    fadeMode_  = false;
+    startSequence(repeat);
+}
+
+void PlaybackEngine::playThenFade(uint8_t passes, float fadeSeconds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!loaded_) return;
+    fadeAfter_   = passes;
+    fadeMode_    = true;
+    fadeSamples_ = static_cast<uint32_t>(std::max(0.0f, fadeSeconds) * static_cast<float>(sampleRate_));
+    // 決めた周の数を越えて鳴らし続け、その間にフェードする。止めるのはフェードが決める。
+    startSequence(0);
+}
+
+void PlaybackEngine::setFadeAfter(uint8_t passes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!fadeMode_ || fader_.fading() || fader_.silent()) return;
+    fadeAfter_ = passes;
+}
+
+bool PlaybackEngine::takeFadeEnd() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const bool ended = fadeEnd_;
+    fadeEnd_ = false;
+    return ended;
+}
+
+bool PlaybackEngine::fading() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return fader_.fading();
+}
+
+uint32_t PlaybackEngine::passes() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sequencer_ ? sequencer_->passes(0) : 0;
+}
+
+void PlaybackEngine::startSequence(uint8_t repeat) {
+    fadeEnd_ = false;
+    fader_.reset();
     sequencer_->stop(0);
     devices_->resetAll();
     sequencer_->load(0, block_);
@@ -85,7 +132,32 @@ void PlaybackEngine::play(uint8_t repeat) {
 void PlaybackEngine::stop() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!loaded_) return;
+    fadeAfter_ = 0;
+    fadeMode_  = false;
     sequencer_->stop(0);
+}
+
+void PlaybackEngine::setPaused(bool paused) {
+    paused_ = paused;
+    if (!stream_) return;
+    if (paused) SDL_PauseAudioStreamDevice(stream_);
+    else        SDL_ResumeAudioStreamDevice(stream_);
+}
+
+// フェードで落ちきったあとは、止めたシーケンスのリリースも出さない。fader_ は次の
+// 再生まで 0 のまま。
+void PlaybackEngine::afterRender(float* left, float* right, uint32_t frames) {
+    if (fadeAfter_ != 0 && !fader_.fading() && !fader_.silent() &&
+        sequencer_->passes(0) >= fadeAfter_) {
+        fader_.start(fadeSamples_);
+    }
+    fader_.apply(left, right, frames);
+    if (fadeAfter_ != 0 && fader_.silent()) {
+        fadeAfter_ = 0;
+        fadeMode_  = false;
+        fadeEnd_   = true;
+        sequencer_->stop(0);
+    }
 }
 
 bool PlaybackEngine::playing() {
@@ -119,6 +191,7 @@ void PlaybackEngine::applyMutes() {
 void PlaybackEngine::renderOffline(float* left, float* right, uint32_t frames) {
     std::lock_guard<std::mutex> lock(mutex_);
     player_->render(left, right, frames);
+    afterRender(left, right, frames);
 }
 
 void PlaybackEngine::render(float* interleaved, int frames) {
@@ -130,6 +203,7 @@ void PlaybackEngine::render(float* interleaved, int frames) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         player_->render(left_.data(), right_.data(), static_cast<uint32_t>(n));
+        afterRender(left_.data(), right_.data(), static_cast<uint32_t>(n));
     }
     for (size_t i = 0; i < n; ++i) {
         interleaved[i * 2]     = left_[i];

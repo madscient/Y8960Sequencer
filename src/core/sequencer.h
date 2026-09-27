@@ -36,6 +36,8 @@ public:
     // repeat が 0 なら終わらない。
     void start(int sequence, uint8_t repeat);
     void stop(int sequence);
+    // start から数えて、終わりまで走った周の数。繰り返しが残っていてもいなくても数える。
+    uint32_t passes(int sequence) const { return sequences_[static_cast<size_t>(sequence)].passes; }
 
     // MTUNE。1/64 半音。
     void setTune(int16_t steps) { tune_ = steps; }
@@ -92,6 +94,7 @@ private:
         uint16_t acc      = 0;
         uint16_t active   = 0;   // まだ走っているトラックのビット
         bool     first    = false;
+        uint32_t passes   = 0;
         const SequenceBlock* block = nullptr;
         std::array<Track, kTrackCount> tracks{};
     };

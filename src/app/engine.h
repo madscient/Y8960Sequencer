@@ -6,6 +6,7 @@
 #include "block.h"
 #include "chips.h"
 #include "device.h"
+#include "fader.h"
 #include "pcmfile.h"
 #include "player.h"
 #include "sequencer.h"
@@ -48,7 +49,22 @@ public:
     void load(const SequenceBlock& block, const PcmFile* pcm);
 
     void play(uint8_t repeat);
+    // passes 周を終えたら fadeSeconds 秒でフェードアウトし、落ちきったら止まる。
+    // passes が 0 なら終わらない。
+    void playThenFade(uint8_t passes, float fadeSeconds);
+    // playThenFade で鳴らしている曲の周の数を変える。フェードが始まっていたら変えない。
+    void setFadeAfter(uint8_t passes);
     void stop();
+
+    // playThenFade の曲がフェードで終わったら、一度だけ true を返す。
+    // load や stop で止まったときは返さない。
+    bool takeFadeEnd();
+    bool fading();
+    uint32_t passes();          // いまの曲が終えた周の数
+
+    // 音声デバイスを止め、再生の位置をそこで保つ。
+    void setPaused(bool paused);
+    bool paused() const { return paused_; }
 
     bool playing();
     TickRate tickRate() const { return rate_; }
@@ -60,8 +76,16 @@ public:
 private:
     void rebuildPlayer();
     void applyMutes();          // mutex_ を持って呼ぶこと
+    void startSequence(uint8_t repeat);   // 同じく
+    void afterRender(float* left, float* right, uint32_t frames);   // 同じく
 
     uint16_t muteMask_ = 0;
+    uint32_t fadeAfter_   = 0;   // この周の数を終えたらフェードを始める。0 は始めない
+    uint32_t fadeSamples_ = 0;
+    Fader    fader_;
+    bool     fadeMode_ = false;  // playThenFade で鳴らしている
+    bool     fadeEnd_  = false;
+    bool     paused_ = false;
 
     std::mutex  mutex_;
     Y8960Chips  chips_;

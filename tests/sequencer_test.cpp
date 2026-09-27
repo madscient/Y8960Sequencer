@@ -107,6 +107,28 @@ int main() {
         // 周の境目は詰まる。2周目の頭は 1 周目の終わりと同じ tick。
         CHECK(near(bus.firstTick(Device::SSGS, kSsgVolA, 8, 0), kQuarterInterrupts));
         CHECK(seq.finished());
+        CHECK(seq.passes(0) == 2);
+    }
+
+    // 終わらない繰り返しでも、終えた周を数える。start で 0 に戻る。
+    {
+        RecordingBus bus;
+        DeviceSet devices(bus);
+        devices.resetAll();
+        Sequencer seq(devices, TickRate::Vdp60);
+        const SequenceBlock block = seqtest::oneTrack(Device::SSGS, 0, {0x00, 48});
+        seq.load(0, block);
+        bus.tick = 0;
+        seq.start(0, 0);
+        CHECK(seq.passes(0) == 0);
+        run(seq, bus, kQuarterInterrupts - 2);
+        CHECK(seq.passes(0) == 0);
+        run(seq, bus, kQuarterInterrupts * 3);
+        CHECK(!seq.finished());
+        CHECK(seq.passes(0) >= 3 && seq.passes(0) <= 4);
+        seq.stop(0);
+        seq.start(0, 0);
+        CHECK(seq.passes(0) == 0);
     }
 
     // テンポ。T240 は倍の速さで進む。
