@@ -75,8 +75,11 @@ private:
     // 次の段までのコマを数え始め、1段の変化を返す（ENVRATE）。
     static uint8_t rate(Channel& c, uint8_t packed);
     void attack(Channel& c);
+    void release(Channel& c);
+    void now(Channel& c);
     void step();
     void advance(Channel& c, int index);
+    void stepLevel(Channel& c);
     void refresh(int index);
 
     std::array<Channel, kChannels> channels_{};

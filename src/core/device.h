@@ -12,6 +12,9 @@
 
 namespace y8960 {
 
+// rhythmVolume の target のうち、アクセント音量を指すもの（seqdef.inc の RHYVOL_ACC）。
+constexpr uint8_t kRhythmAccent = 0x80;
+
 // SSGS のハードウェアエンベロープとパンポット（seqdef.inc の SSGENV_*）。
 enum class SsgEnv : uint8_t { Shape = 0x00, PeriodLow = 0x10, PeriodHigh = 0x20, Pan = 0x30 };
 
@@ -39,7 +42,8 @@ public:
         (void)ch; (void)slot; (void)record;
     }
 
-    virtual void rhythmVolume(bool accent, uint8_t level) { (void)accent; (void)level; }
+    // target が kRhythmAccent なら @A、それ以外は通常音量を変える楽器のビットマップ。
+    virtual void rhythmVolume(uint8_t target, uint8_t level) { (void)target; (void)level; }
     virtual void rhythmStrike(uint8_t instruments, uint8_t accents) { (void)instruments; (void)accents; }
 
     virtual void ssgEnv(SsgEnv kind, uint8_t ch, uint8_t value) { (void)kind; (void)ch; (void)value; }

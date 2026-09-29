@@ -67,7 +67,7 @@ private:
         uint8_t  voice = kDefaultVoice;
         uint8_t  quant = kQuantMax;
         uint8_t  rhythmAccent = 0;
-        uint8_t  rhythmLevel  = 8;    // リズムの V。レベルメーターのために持つ
+        std::array<uint8_t, 5> rhythmLevels{8, 8, 8, 8, 8};   // リズムの V と @B など。bit0（HH）から。レベルメーターのために持つ
         uint8_t  rhythmAccentLevel = 15;   // 同じく @A
         uint8_t  outVolume   = 0;     // 最後にデバイスへ出した音量 0-127
         bool     muted       = false;

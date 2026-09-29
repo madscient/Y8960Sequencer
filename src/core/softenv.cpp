@@ -89,12 +89,7 @@ bool SoftEnvelope::keyOff(Device device, uint8_t ch) {
     Channel& c = channels_[static_cast<size_t>(i)];
     c.vol = static_cast<uint8_t>(c.vol & ~kKey);
     if (c.phase == Phase::None) return false;
-    // リリースは SL からではなく、いまの値から。もう下がっているものはそのまま。
-    if (c.phase < Phase::Release) {
-        c.phase = Phase::Release;
-        rate(c, c.rr);
-        moving_ = true;
-    }
+    release(c);
     return true;
 }
 
@@ -181,6 +176,22 @@ void SoftEnvelope::attack(Channel& c) {
     c.level = 0;
     rate(c, c.ar);
     moving_ = true;
+    now(c);
+}
+
+// SL からではなく、いまの値から。リリース中でも止まっていても、キーオフのたびに
+// コマを RR から数え直す（ゲートで切れた音符のあとの休符がそうなる）。
+void SoftEnvelope::release(Channel& c) {
+    c.phase = Phase::Release;
+    rate(c, c.rr);
+    moving_ = true;
+    now(c);
+}
+
+// 勤労5号はキーのフレームで段を用意し、同じフレームで1コマ進める（ENVNOW）。
+// チップには書かない ―― 呼ぶのは、このあと書くドライバ。
+void SoftEnvelope::now(Channel& c) {
+    if (--c.count == 0) stepLevel(c);
 }
 
 // 動いているものが無いのが普段の状態。印は1コマごとに下ろし、まだ動いているものが
@@ -197,9 +208,14 @@ void SoftEnvelope::step() {
     }
 }
 
+void SoftEnvelope::advance(Channel& c, int index) {
+    stepLevel(c);
+    refresh(index);
+}
+
 // 勤労5号の順序。2つの境目も同じにしてある ―― アタックは 15 に着いたところで終わり、
 // ディケイは SL と同じ値ならもう1段下げ、SL を下回る段で SL にそろえて終わる。
-void SoftEnvelope::advance(Channel& c, int index) {
+void SoftEnvelope::stepLevel(Channel& c) {
     if (c.phase == Phase::Attack) {
         const int next = c.level + rate(c, c.ar);
         if (next < kLevelMax) {
@@ -226,7 +242,6 @@ void SoftEnvelope::advance(Channel& c, int index) {
             c.level = 0;
         }
     }
-    refresh(index);
 }
 
 void SoftEnvelope::refresh(int index) {

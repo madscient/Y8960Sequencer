@@ -140,9 +140,8 @@ public:
         selectInstrument(ch, 0);         // ユーザー音色は楽器 0
     }
 
-    void rhythmVolume(bool accent, uint8_t level) override {
-        if (accent) rhythm_.accent = level;
-        else        rhythm_.level  = level;
+    void rhythmVolume(uint8_t target, uint8_t level) override {
+        rhythm_.setLevel(target, level);
     }
 
     // 打撃はビットが立ち上がること。同じ楽器を続けて叩くには、いったん落とす。

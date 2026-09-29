@@ -243,6 +243,67 @@ int main() {
         CHECK(bd.level.load() > sd.level.load());       // アクセントの付いたほうが大きい
     }
 
+    // リズムの楽器ごとの通常音量（`D8`）。5つを叩いた打撃で OPLL の 36h-38h（減衰）と
+    // OPL2 の TL を見る。ROM の rhyinst.tcl と同じ観点。
+    {
+        struct Case {
+            const char* name;
+            std::initializer_list<int> events;   // 最後に5つを叩く C8 を足す
+            uint8_t r36, r37, r38;               // 36h は下位ニブルだけ見る
+        };
+        const Case cases[] = {
+            // V10 @H6 @B13、スネアにアクセント。BD 13、SD @A15、TOM と TC は V10、HH 6
+            {"per instrument", {0xA9, 10, 0xD8, 0x01, 6, 0xD8, 0x10, 13, 0xA8, 0x08}, 0x02, 0x90, 0x55},
+            // @S3 のあとの V7 は5つとも上書きし、そのあとの @S3 はスネアだけ変える
+            {"V overwrites", {0xA9, 10, 0xD8, 0x08, 3, 0xA9, 7, 0xA8, 0x00}, 0x08, 0x88, 0x88},
+            {"@S after V",   {0xA9, 7, 0xD8, 0x08, 3, 0xA8, 0x00}, 0x08, 0x8C, 0x88},
+            // アクセントは楽器によらず @A。@H2 でもアクセントの HH は @A12 で鳴る
+            {"accent is @A", {0xD8, 0x01, 2, 0xAA, 12, 0xA8, 0x01}, 0x07, 0x37, 0x77},
+            // 1バイト目の bit7-5 は無視する。80h を残すとアクセント音量に読まれる
+            {"bits 7-5",     {0xD8, 0x80, 5, 0xA8, 0x01}, 0x07, 0x07, 0x77},
+        };
+        for (const Case& c : cases) {
+            y8960::SequenceBlock block = seqtest::oneTrack(Device::OPLLEX1, kChannelRhythm, {});
+            auto& ev = block.tracks[0].events;
+            ev.clear();
+            for (int e : c.events) ev.push_back(static_cast<uint8_t>(e));
+            ev.insert(ev.end(), {0xC8, 0x1F, 48, 0xFF});
+            RecordingBus bus;
+            DeviceSet devices(bus);
+            devices.resetAll();
+            Sequencer seq(devices, TickRate::Vdp60);
+            seq.load(0, block);
+            bus.tick = 0;
+            seq.start(0, 1);
+            const auto v36 = bus.values(Device::OPLLEX1, 0x36);
+            const auto v37 = bus.values(Device::OPLLEX1, 0x37);
+            const auto v38 = bus.values(Device::OPLLEX1, 0x38);
+            const bool ok = !v36.empty() && (v36.back() & 0x0F) == c.r36 && !v37.empty() && v37.back() == c.r37 &&
+                            !v38.empty() && v38.back() == c.r38;
+            if (!ok) {
+                std::printf("  rhythm %s: 36h=%02X 37h=%02X 38h=%02X, want %02X %02X %02X\n", c.name,
+                            v36.empty() ? 0 : v36.back(), v37.empty() ? 0 : v37.back(),
+                            v38.empty() ? 0 : v38.back(), c.r36, c.r37, c.r38);
+            }
+            CHECK(ok);
+        }
+
+        // OPL2EX は同じ減衰を TL に4倍して書く。BD 13（減衰 2）と HH 6（減衰 9）。
+        y8960::SequenceBlock block = seqtest::oneTrack(Device::OPL2EX1, kChannelRhythm,
+            {0xA9, 10, 0xD8, 0x01, 6, 0xD8, 0x10, 13, 0xA8, 0x00, 0xC8, 0x11, 48});
+        RecordingBus bus;
+        DeviceSet devices(bus);
+        devices.resetAll();
+        Sequencer seq(devices, TickRate::Vdp60);
+        seq.load(0, block);
+        bus.tick = 0;
+        seq.start(0, 1);
+        const auto bd = bus.values(Device::OPL2EX1, 0x53);   // ch6 キャリア
+        const auto hh = bus.values(Device::OPL2EX1, 0x51);   // ch7 モジュレータ
+        CHECK(!bd.empty() && (bd.back() & 0x3F) == 2 * 4);
+        CHECK(!hh.empty() && (hh.back() & 0x3F) == 9 * 4);
+    }
+
     // トラックのミュート。キーオンを止め、音量は 0。解けば次の音符から鳴る。
     {
         RecordingBus bus;

@@ -228,9 +228,8 @@ public:
         loadVoice(ch, record.data.data());
     }
 
-    void rhythmVolume(bool accent, uint8_t level) override {
-        if (accent) rhythm_.accent = level;
-        else        rhythm_.level  = level;
+    void rhythmVolume(uint8_t target, uint8_t level) override {
+        rhythm_.setLevel(target, level);
     }
 
     void rhythmStrike(uint8_t instruments, uint8_t accents) override {

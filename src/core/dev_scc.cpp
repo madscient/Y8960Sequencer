@@ -20,6 +20,13 @@ constexpr uint8_t kOffVol     = 0x8A;
 constexpr uint8_t kOffEnable  = 0x8F;
 constexpr uint8_t kVolMax     = 15;
 
+// PSG の目盛り（1段が数 dB）の 0-15 を、振幅に比例する SCC の音量に直す（SCCVOLTAB）。
+// 1-15 は tiny-yarou.com の「SCC for BASIC」の PSG→SCC 表で、0 は表に無いので無音。
+constexpr uint8_t kVolTable[kVolMax + 1] = {
+    0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x02, 0x03, 0x04, 0x06, 0x08, 0x0A, 0x0C, 0x0F,
+};
+
 constexpr uint8_t kSavNone = 0xFF;   // まだ何も載っていない
 constexpr uint8_t kSavSeq  = 0x80;   // 控えているのが集合の索引であることの印
 
@@ -106,11 +113,11 @@ private:
         bus_.write(Device::SCC, offset, value);
     }
 
-    // エンベロープがあればその値、無ければ V。
+    // エンベロープがあればその値、無ければ V。どちらも表を通す。
     void writeVolume(uint8_t ch) {
         uint8_t level = 0;
         if (!env_.output(Device::SCC, ch, level)) level = vol_[ch];
-        write(static_cast<uint8_t>(kOffVol + ch), level);
+        write(static_cast<uint8_t>(kOffVol + ch), kVolTable[level & kVolMax]);
     }
 
     void envRefresh(uint8_t ch) override { writeVolume(ch); }
