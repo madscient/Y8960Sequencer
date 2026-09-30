@@ -88,13 +88,15 @@ public:
         out(static_cast<uint8_t>(kLatch | (kNoiseCh << kChShift) | white | number));
     }
 
-    bool regRead(uint8_t reg, uint8_t& value) override {
+    bool regRead(uint8_t port, uint8_t reg, uint8_t& value) override {
+        if (port != 0) return false;
         if (reg >= kRegs) return false;
         value = shadow_[reg];
         return true;
     }
 
-    bool regWrite(uint8_t reg, uint8_t value) override {
+    bool regWrite(uint8_t port, uint8_t reg, uint8_t value) override {
+        if (port != 0) return false;
         if (reg >= kRegs) return false;
         out(static_cast<uint8_t>(kLatch | (reg << 4) | (value & 0x0F)));
         ySave(reg, value);

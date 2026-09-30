@@ -53,8 +53,8 @@ bool FmEngine::addChip(const char* name, uint32_t clock, uint32_t& outId, std::s
     return true;
 }
 
-bool FmEngine::setMemory(uint32_t chipId, const uint8_t* data, uint32_t size) {
-    return lib_->setMemory(handle_, chipId, kFmMemAdpcmB, data, size) == kFmOk;
+bool FmEngine::setMemory(uint32_t chipId, FmEngineMemory type, const uint8_t* data, uint32_t size) {
+    return lib_->setMemory(handle_, chipId, type, data, size) == kFmOk;
 }
 
 } // namespace y8960

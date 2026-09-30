@@ -14,14 +14,21 @@ std::unique_ptr<SoundDevice> makeDcsgDevice(ChipBus& bus, Device which, SoftEnve
 std::unique_ptr<SoundDevice> makeSccDevice(ChipBus& bus, SoftEnvelope& envelope);
 std::unique_ptr<SoundDevice> makeOpllexDevice(ChipBus& bus, Device which);
 std::unique_ptr<SoundDevice> makeOpl2exDevice(ChipBus& bus, Device which);
+std::unique_ptr<SoundDevice> makeOpl3Device(ChipBus& bus);
+std::unique_ptr<SoundDevice> makeOpmDevice(ChipBus& bus);
+// OPNA と OPNB。SSG 部（チャンネル 6-8）はソフトウェアエンベロープを持つ。
+std::unique_ptr<SoundDevice> makeOpnDevice(ChipBus& bus, Device which, SoftEnvelope& envelope);
+// OPNA・OPNB の SSG 部。SSGS と同じドライバを1セットで使う。
+std::unique_ptr<SoundDevice> makeOpnSsg(ChipBus& bus, Device which, SoftEnvelope& envelope);
 
-// リズムチャンネルの控え（rhythm.asm の CTL_RHYSAV）。OPLLEX と OPL2EX が持つ。
-// 通常音量は楽器ごと、アクセント音量は5つに共通。
+// リズムチャンネルの控え（rhythm.asm の CTL_RHYSAV）。OPLLEX・OPL2EX・OPL3 は
+// 5つの楽器、OPNA のリズムと OPNB の ADPCM-A は6つの楽器に使う。
+// 通常音量は楽器ごと、アクセント音量はすべてに共通。
 struct RhythmState {
-    static constexpr int kInstruments = 5;
+    static constexpr int kInstruments = 6;
 
     uint8_t mode    = 0;    // リズムレジスタのうち、打撃以外のビット
-    std::array<uint8_t, kInstruments> levels{8, 8, 8, 8, 8};   // V と @B など。bit0（HH）から
+    std::array<uint8_t, kInstruments> levels{8, 8, 8, 8, 8, 8};   // V と @B など。bit0 から
     uint8_t accent  = 15;   // @A
     uint8_t scale   = 127;  // シーケンスの音量
     uint8_t accents = 0;    // 最後の打撃でアクセントが付いた楽器
@@ -54,10 +61,14 @@ struct RhythmState {
         return static_cast<uint8_t>(v < 0 ? 0 : (v >> 3) & kVolMax);
     }
 
-    // 楽器 bit が、この打撃で受け取る減衰。叩かれない楽器も普通のレベルを受け取る。
+    // 楽器 bit が、この打撃で受け取るレベル 0-15。叩かれない楽器も普通のレベルを受け取る。
+    uint8_t level(uint8_t bit, uint8_t struckAccents) const {
+        return scaled((bit & struckAccents) ? accent : levels[static_cast<size_t>(index(bit))]);
+    }
+
+    // 同じく減衰で。OPLL と OPL の書き方。
     uint8_t attenuation(uint8_t bit, uint8_t struckAccents) const {
-        const uint8_t level_ = scaled((bit & struckAccents) ? accent : levels[static_cast<size_t>(index(bit))]);
-        return static_cast<uint8_t>(kVolMax - level_);
+        return static_cast<uint8_t>(kVolMax - level(bit, struckAccents));
     }
 
     static int index(uint8_t bit) {

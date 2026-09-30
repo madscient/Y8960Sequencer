@@ -64,6 +64,7 @@ void printUsage() {
                "  --mute    silence a part; may be given more than once\n"
                "              <chip>[,<channel>]  chip: SSGS OPLLEX1 OPLLEX2 OPL2EX1 OPL2EX2"
                " DCSG1 DCSG2 SCC\n"
+               "                                  OPL3 OPM OPNA OPNB\n"
                "              T<number>           track 0-15\n"
                "              A-P                 track 0-15 as a letter\n"
                "            prefix with ! to silence everything else\n"

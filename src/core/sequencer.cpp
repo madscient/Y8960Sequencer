@@ -26,12 +26,13 @@ constexpr uint8_t kEvVoice    = 0x82;
 constexpr uint8_t kEvQuantize = 0x83;
 constexpr uint8_t kEvTempo    = 0x84;
 constexpr uint8_t kEvSeqVoice = 0x85;
+constexpr uint8_t kEvPan      = 0x87;
 constexpr uint8_t kEvRhyAccent = 0xA8;
 constexpr uint8_t kEvRhyVol    = 0xA9;
 constexpr uint8_t kEvRhyAccVol = 0xAA;
 constexpr uint8_t kEvSsgShape  = 0xB0;
-constexpr uint8_t kEvSsgPan    = 0xB1;
 constexpr uint8_t kEvEnvelope  = 0xB2;
+constexpr uint8_t kEvSccTable  = 0xB3;
 constexpr uint8_t kEvNoteAbs   = 0xC0;
 constexpr uint8_t kEvRhythm    = 0xC8;
 constexpr uint8_t kEvBend      = 0xD0;
@@ -41,14 +42,17 @@ constexpr uint8_t kEvBlockEnd  = 0xD3;
 constexpr uint8_t kEvFine      = 0xD4;
 constexpr uint8_t kEvDalSegno  = 0xD5;
 constexpr uint8_t kEvRhyInstVol = 0xD8;
+constexpr uint8_t kEvAdpcmA    = 0xD9;
 constexpr uint8_t kEvSsgPeriod = 0xDC;
 constexpr uint8_t kEvRegWrite  = 0xE0;
 constexpr uint8_t kEvBlock     = 0xE1;
 constexpr uint8_t kEvLoopEnd   = 0xE2;
+constexpr uint8_t kEvRegWrite2 = 0xE8;
+constexpr uint8_t kEvSubPitch  = 0xE9;
 constexpr uint8_t kEvToCoda    = 0xF0;
 constexpr uint8_t kEvEnd       = 0xFF;
 
-constexpr uint8_t kRhythmAll = 0x1F;
+constexpr uint8_t kSccTableOn = 1;       // `B3` の 1 以外は表を通さない（ROM と同じ）
 
 constexpr uint8_t kLengthLong = 0x80;   // 音長の1バイト目の bit7
 
@@ -62,10 +66,15 @@ uint8_t subVol(uint8_t level, uint8_t scale) {
     return static_cast<uint8_t>(v < 0 ? 0 : v);
 }
 
-void setRhythmLevels(std::array<uint8_t, 5>& levels, uint8_t instruments, uint8_t level) {
+void setRhythmLevels(std::array<uint8_t, kRhythmSlots>& levels, uint8_t instruments, uint8_t level) {
     for (size_t i = 0; i < levels.size(); ++i) {
         if (instruments & (1u << i)) levels[i] = level;
     }
+}
+
+// リズムチャンネルが使うビット（楽器の数だけ下から）。
+uint8_t rhythmBits(Device device) {
+    return static_cast<uint8_t>((1u << rhythmInstruments(device)) - 1);
 }
 
 } // namespace
@@ -139,8 +148,8 @@ void Sequencer::setTrackMute(int sequence, int track, bool mute) {
     // ROM のミュートと同じく、鳴っている音はキーオフせず音量 0 で消す。
     volumeOut(s, t);
     if (!mute || !activity_) return;
-    if (t.channel == kChannelRhythm) {
-        for (uint8_t i = 0; i < 5; ++i) activity_->noteOff(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i));
+    if (isRhythmChannel(t.device, t.channel)) {
+        for (uint8_t i = 0; i < kRhythmSlots; ++i) activity_->noteOff(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i));
     } else {
         activity_->noteOff(t.device, t.channel);
     }
@@ -242,6 +251,7 @@ void Sequencer::rewind(Sequence& s) {
         // 既定の音色は番号で選ぶ。レコードで表される音色のドライバはこれを捨て、
         // ブロックが持つレコード（`85`）を待つ（doc/rom-feedback.md の B1）。
         device(t).setVoice(t.channel, kDefaultVoice);
+        device(t).rewindChannel(t.channel);
         volumeOut(s, t);
         devices_.setEnvelope(t.device, t.channel, 0, EnvelopeRecord{});
     }
@@ -354,12 +364,12 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
         case kEvVoice:    t.voice = arg; device(t).setVoice(t.channel, arg); break;
         case kEvSeqVoice: {
             t.voice = arg;
-            if (s.block && arg < kVoiceSlots) {
-                const VoiceRecord& rec = s.block->voices[arg];
-                if (rec.kind != RecordKind::None) device(t).seqVoice(t.channel, arg, rec);
-            }
+            // デバイス 9-11 は自分の集合を、ほかは共有の集合を名指す。
+            const VoiceRecord* rec = s.block ? s.block->seqVoice(t.device, arg) : nullptr;
+            if (rec) device(t).seqVoice(t.channel, arg, *rec);
             break;
         }
+        case kEvPan: device(t).setPan(t.channel, arg); break;
         case kEvTempo: {
             const TickIncrement inc = tickIncrement(arg, rate_);
             s.incWhole = inc.whole;
@@ -368,12 +378,12 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
         }
         case kEvRhyAccent: t.rhythmAccent = arg; break;
         case kEvRhyVol:
-            setRhythmLevels(t.rhythmLevels, kRhythmAll, arg);
-            device(t).rhythmVolume(kRhythmAll, arg);
+            setRhythmLevels(t.rhythmLevels, rhythmBits(t.device), arg);
+            device(t).rhythmVolume(rhythmBits(t.device), arg);
             break;
         case kEvRhyAccVol: t.rhythmAccentLevel = arg; device(t).rhythmVolume(kRhythmAccent, arg); break;
         case kEvSsgShape:  device(t).ssgEnv(SsgEnv::Shape, t.channel, arg); break;
-        case kEvSsgPan:    device(t).ssgEnv(SsgEnv::Pan, t.channel, arg); break;
+        case kEvSccTable:  device(t).setVolumeTable(t.channel, arg == kSccTableOn); break;
         case kEvEnvelope: {
             // ブロックに無い番号は中身が 0 のものとして選ぶ。ROM も写していない枠を
             // 0 として読む。鳴り方は保証されていない。
@@ -428,13 +438,16 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             }
             break;
         case kEvRhyInstVol: {
-            // bit7-5 を落とす。残すと kRhythmAccent と読まれる。
-            const uint8_t instruments = static_cast<uint8_t>(arg & kRhythmAll);
+            // 使わないビットを落とす。bit7 を残すと kRhythmAccent と読まれる。
+            const uint8_t instruments = static_cast<uint8_t>(arg & rhythmBits(t.device));
             const uint8_t level = static_cast<uint8_t>(arg >> 8);
             setRhythmLevels(t.rhythmLevels, instruments, level);
             device(t).rhythmVolume(instruments, level);
             break;
         }
+        case kEvAdpcmA:
+            device(t).bindAdpcmA(static_cast<uint8_t>(arg & 0xFF), static_cast<uint8_t>(arg >> 8));
+            break;
         case kEvSsgPeriod:
             device(t).ssgEnv(SsgEnv::PeriodLow,  t.channel, static_cast<uint8_t>(arg & 0xFF));
             device(t).ssgEnv(SsgEnv::PeriodHigh, t.channel, static_cast<uint8_t>(arg >> 8));
@@ -448,18 +461,24 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
         const uint8_t  first    = readByte(t);
         const uint16_t distance = readWord(t);
         switch (op) {
-        case kEvRegWrite: {
+        case kEvRegWrite:
+        case kEvRegWrite2: {
+            // `E8` は2組目へ。2組目を持たないデバイスは regRead と regWrite が断る。
+            const uint8_t port = (op == kEvRegWrite2) ? 1 : 0;
             const uint8_t data = static_cast<uint8_t>(distance & 0xFF);
             const uint8_t mask = static_cast<uint8_t>(distance >> 8);
             uint8_t value = data;
             if (mask != 0) {
                 uint8_t current = 0;
-                if (!device(t).regRead(first, current)) return false;
+                if (!device(t).regRead(port, first, current)) return false;
                 value = static_cast<uint8_t>((current & mask) | data);
             }
-            device(t).regWrite(first, value);
+            device(t).regWrite(port, first, value);
             break;
         }
+        case kEvSubPitch:
+            device(t).setSubPitch(t.channel, first, centToSteps(static_cast<int16_t>(distance)));
+            break;
         case kEvBlock: {
             // ループの外のブロックは1周目として扱う。
             const uint8_t round = (t.loopSp != 0) ? t.loop[t.loopSp - 1] : 1;
@@ -604,12 +623,18 @@ void Sequencer::keyOff(Track& t) {
 }
 
 // リズムの打撃を、楽器ごとの枠に分けて記録する。叩いた楽器だけが立ち上がる。
+// 枠は activity.h の並び。OPL 系は上のビットから（BD SD TOM CYM HH）、OPNA と OPNB は
+// 下のビットから。
 void Sequencer::reportStrike(Sequence& s, const Track& t, uint8_t instruments) {
     if (!activity_) return;
-    constexpr uint8_t kBits[5] = {0x10, 0x08, 0x04, 0x02, 0x01};   // BD SD TOM CYM HH
-    for (uint8_t i = 0; i < 5; ++i) {
-        if (!(instruments & kBits[i])) continue;
-        const uint8_t level15 = (t.rhythmAccent & kBits[i]) ? t.rhythmAccentLevel : t.rhythmLevels[4 - i];
+    const int count = rhythmInstruments(t.device);
+    const bool fromTop = (count == 5);
+    for (int i = 0; i < count; ++i) {
+        const int bitIndex = fromTop ? count - 1 - i : i;
+        const uint8_t bit = static_cast<uint8_t>(1u << bitIndex);
+        if (!(instruments & bit)) continue;
+        const uint8_t level15 = (t.rhythmAccent & bit) ? t.rhythmAccentLevel
+                                                       : t.rhythmLevels[static_cast<size_t>(bitIndex)];
         // 0-15 を V と同じく n*8+7 に伸ばし、シーケンスの音量ぶん下げる。
         const uint8_t loud = subVol(static_cast<uint8_t>(level15 * 8 + 7), (s.mute || t.muted) ? 0 : s.current);
         activity_->noteOn(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i), loud);
@@ -619,7 +644,7 @@ void Sequencer::reportStrike(Sequence& s, const Track& t, uint8_t instruments) {
 // トラックの音量をシーケンスの音量ぶん下げる。リズムチャンネルは打撃ごとに自分の
 // レベルを持つので、シーケンスのぶんだけを送る。
 void Sequencer::volumeOut(Sequence& s, Track& t) {
-    const uint8_t own = (t.channel == kChannelRhythm) ? kMixerMax : t.vol;
+    const uint8_t own = isRhythmChannel(t.device, t.channel) ? kMixerMax : t.vol;
     const uint8_t scale = (s.mute || t.muted) ? 0 : s.current;
     t.outVolume = subVol(own, scale);
     device(t).setVolume(t.channel, t.outVolume);

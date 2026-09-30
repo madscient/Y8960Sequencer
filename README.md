@@ -1,10 +1,14 @@
 # Y8960 Sequencer Player
 
 [Y8960 BASIC Extension](https://github.com/madscient/Y8960BasicExtension) が
-`CALL MSAVE` で書き出すシーケンスデータを、音源チップのエミュレータで鳴らす
-スタンドアローンのプレイヤー。Windows / Linux / macOS 向け。
+`CALL MSAVE` で書き出すシーケンスデータ（Y8SQ 形式）を、音源チップのエミュレータで
+鳴らすスタンドアローンのプレイヤー。Windows / Linux / macOS 向け。
 
 **開発中。** シーケンスデータを読んで鳴らせる。
+
+鳴らせる音源は、Y8960 の8つの音源ブロック（SSGS、OPLLEX ×2、OPL2EX ×2、DCSG ×2、
+SCC）と、Y8SQ 形式が表す OPL3・OPM・OPNA・OPNB。OPNB は YM2610B（FM 6 チャンネル）
+として鳴らす。
 
 ## 使い方
 
@@ -29,8 +33,8 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
 
 | 指定 | 黙るもの |
 |---|---|
-| `<チップ>` | そのチップのトラック全部。チップは `SSGS` `OPLLEX1` `OPLLEX2` `OPL2EX1` `OPL2EX2` `DCSG1` `DCSG2` `SCC` |
-| `<チップ>,<CH番号>` | そのチャンネル。番号はシーケンスデータと同じで、OPL2EX の 9 が ADPCM、10 がリズム |
+| `<チップ>` | そのチップのトラック全部。チップは `SSGS` `OPLLEX1` `OPLLEX2` `OPL2EX1` `OPL2EX2` `DCSG1` `DCSG2` `SCC` `OPL3` `OPM` `OPNA` `OPNB` |
+| `<チップ>,<CH番号>` | そのチャンネル。番号はシーケンスデータと同じ（下の表） |
 | `T<番号>` | トラック 0-15 |
 | `A`-`P` | トラック 0-15 を英字で（`A` がトラック 0） |
 
@@ -38,6 +42,17 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
   書くと、そのどれにも当たらないものが黙る。`!` の無い指定はそのうえで黙らせる
 - シーケンスが使っていないチップ・チャンネル・トラックを指定しても、何もしない
 - 大文字と小文字は区別しない
+
+| チップ | CH番号 |
+|---|---|
+| `SSGS` | 0-5 |
+| `OPLLEX1` `OPLLEX2` | 0-8、10 がリズム |
+| `OPL2EX1` `OPL2EX2` | 0-8、9 が ADPCM、10 がリズム |
+| `DCSG1` `DCSG2` | 0-2 が矩形波、3 がノイズ |
+| `SCC` | 0-4 |
+| `OPL3` | 0-17 が 2OP、18-23 が 4OP、24 がリズム |
+| `OPM` | 0-7 |
+| `OPNA` `OPNB` | 0-5 が FM、6-8 が SSG、9 がリズム（OPNB は ADPCM-A）、10 が ADPCM-B |
 
 GUI。引数は省略できる。操作は Windows Media Player に倣っている。画面の文字は英語。
 
@@ -61,9 +76,9 @@ y8960gui [シーケンスファイルかフォルダ] [--adpcm <ADPCM サンプ�
 - 前（`|<`）・再生と一時停止・次（`>|`）・`Stop`。キーボードでは Ctrl+P（再生と一時停止）、
   Ctrl+S（止める）、Ctrl+B（前）、Ctrl+F（次）、Ctrl+H（シャッフル）、Ctrl+T（リピート）、
   Ctrl+O（開く）
-- 音源ブロックごと・チャンネルごとのレベルメーターが出る。リズムチャンネルは楽器5つに
-  分かれる。帯の `Mute` でチップを、バーのクリックでチャンネルを黙らせる（リズムの楽器は
-  チャンネル 10 の1本として黙る）。帯の左のレバーでチップごとの音量を -40 dB（一番下は
+- 音源ブロックごと・チャンネルごとのレベルメーターが出る。リズムチャンネルは楽器ごとに
+  分かれる（OPNA・OPNB は6つ、ほかは5つ）。帯の `Mute` でチップを、バーのクリックで
+  チャンネルを黙らせる（リズムの楽器はリズムチャンネルの1本として黙る）。帯の左のレバーでチップごとの音量を -40 dB（一番下は
   無音）から +6 dB まで変えられ、右クリックで 0 dB に戻る
 - tick の周期は止まっているときに選べる
 - 引数で渡したファイルやフォルダはプレイリストに入れるだけで、鳴らさない
@@ -71,9 +86,18 @@ y8960gui [シーケンスファイルかフォルダ] [--adpcm <ADPCM サンプ�
 - シーケンスファイルは名前を問わない。中身の `Y8SQ` ヘッダで判断し、MSX の
   `BSAVE` で保存した見出し付きのファイルも読める
 - ADPCM サンプルファイルは `Y8PC` 形式（`CALL EXPORT PCM` が書き出すもの）。
-  ボイスファイルの設定と ADPCM メモリの中身を運ぶ
+  ボイスファイルの設定と ADPCM メモリの中身を運ぶ。OPL2EX の ADPCM と、OPNA・OPNB の
+  ADPCM-B は、どれもこの同じ中身を鳴らす
 - シーケンスデータにもボイスファイルの設定が入っていることがある。**両方あるときは
   `--adpcm` のほうを使う**
+- 読めるのは Y8SQ 形式の版 01。FM の音色は 12 バイトのレジスタイメージで持つもの
+  （Y8SQ 形式の現在の定め）で、それ以外の長さの音色を持つシーケンスは読まない
+- このプレイヤーが鳴らさないデバイス番号（12 以上）のトラックは、知らせてから飛ばし、
+  残りを鳴らす
+- **OPNA のリズムと OPNB の ADPCM-A は鳴らない。** サンプルの中身（OPNA はチップ内蔵の
+  ROM、OPNB はサンプル ROM）をエミュレータに渡す手段が無いため
+- OPL3・OPM・OPNA・OPNB のクロックは、それぞれ 14.31818MHz・3.579545MHz・7.9872MHz・
+  8MHz
 
 ## 入手
 
@@ -83,21 +107,22 @@ Linux と macOS は、ソースからビルドする。
 
 ## エミュレータ
 
-次の3本の共有ライブラリを、`y8960player` と同じフォルダに置く。Windows 版の
+次の4本の共有ライブラリを、`y8960player` と同じフォルダに置く。Windows 版の
 zip には入っている。
 
-| ライブラリ | Windows | Linux | macOS |
-|---|---|---|---|
-| [Y8960emu](https://github.com/madscient/Y8960emu) | `Y8960emuEngine.dll` | `libY8960emuEngine.so` | `libY8960emuEngine.dylib` |
-| [EPSGemuEngine](https://github.com/madscient/EPSGemuEngine) | `EPSGemuEngine.dll` | `libEPSGemuEngine.so` | `libEPSGemuEngine.dylib` |
-| [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
+| ライブラリ | 鳴らす音源 | Windows | Linux | macOS |
+|---|---|---|---|---|
+| [Y8960emu](https://github.com/madscient/Y8960emu) | OPLLEX、OPL2EX | `Y8960emuEngine.dll` | `libY8960emuEngine.so` | `libY8960emuEngine.dylib` |
+| [EPSGemuEngine](https://github.com/madscient/EPSGemuEngine) | SSGS | `EPSGemuEngine.dll` | `libEPSGemuEngine.so` | `libEPSGemuEngine.dylib` |
+| [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | DCSG、SCC | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
+| [YMEngine](https://github.com/madscient/YMEngine) | OPL3、OPM、OPNA、OPNB | `YMFMEngine.dll` | `libYMFMEngine.so` | `libYMFMEngine.dylib` |
 
 ## ビルド
 
 CMake 3.20 以上と C++17 のコンパイラが要る。
 
 ```sh
-cmake -S . -B build/player -DY8960_EMULATOR_DIR=<3本のライブラリを置いたフォルダ>
+cmake -S . -B build/player -DY8960_EMULATOR_DIR=<4本のライブラリを置いたフォルダ>
 cmake --build build/player --config Release
 ctest --test-dir build/player -C Release --output-on-failure
 ```
@@ -105,7 +130,7 @@ ctest --test-dir build/player -C Release --output-on-failure
 `Y8960_EMULATOR_DIR` は省略できる。渡すと、ライブラリを実行ファイルのフォルダへ
 写し、エミュレータを使う試験（`chips_test` と `render_test`）も登録する。
 
-Windows の配布 zip は `python tools/package_windows.py <版>` で作る。3つの
+Windows の配布 zip は `python tools/package_windows.py <版>` で作る。4つの
 エミュレータのリポジトリが、このリポジトリと同じフォルダに並んでいる前提。
 
 SDL3 と Dear ImGui は CMake が取得する。`-DY8960_BUILD_GUI=OFF` で GUI を、

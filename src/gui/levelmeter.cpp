@@ -38,22 +38,38 @@ constexpr ImU32 kRedDim    = IM_COL32( 58,  22,  20, 255);
 
 const char* const kBandNames[kDeviceCount] = {
     "SSGS", "OPLLEX 1", "OPLLEX 2", "OPL2EX 1", "OPL2EX 2", "DCSG 1", "DCSG 2", "SCC",
+    "OPL3", "OPM", "OPNA", "OPNB",
 };
 
 // SSGS は2つの SSG からできているので、セット番号とその中の名前で呼ぶ。
 const char* const kSsgsLabels[6]  = {"1A", "1B", "1C", "2A", "2B", "2C"};
 const char* const kDcsgLabels[4]  = {"1", "2", "3", "N"};
-const char* const kNumberLabels[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
-const char* const kRhythmLabels[5] = {"BD", "SD", "TM", "CY", "HH"};
+const char* const kNumberLabels[18] = {"1", "2", "3", "4", "5", "6", "7", "8", "9",
+                                       "10", "11", "12", "13", "14", "15", "16", "17", "18"};
+// OPL3 の 4OP のチャンネル 18-23。
+const char* const kQuadLabels[6]  = {"Q1", "Q2", "Q3", "Q4", "Q5", "Q6"};
+// OPNA・OPNB の SSG（チャンネル 6-8）。
+const char* const kOpnSsgLabels[3] = {"SA", "SB", "SC"};
+// リズムの楽器。枠の並び（activity.h）に合わせる。
+const char* const kOplRhythmLabels[5]  = {"BD", "SD", "TM", "CY", "HH"};
+const char* const kOpnaRhythmLabels[6] = {"BD", "SD", "CY", "HH", "TM", "RM"};
+const char* const kOpnbRhythmLabels[6] = {"A1", "A2", "A3", "A4", "A5", "A6"};
 
 const char* slotLabel(Device device, uint8_t slot) {
-    if (slot >= kRhythmSlotFirst) return kRhythmLabels[slot - kRhythmSlotFirst];
+    if (slot >= kRhythmSlotFirst) {
+        const int i = slot - kRhythmSlotFirst;
+        if (device == Device::OPNA) return kOpnaRhythmLabels[i];
+        if (device == Device::OPNB) return kOpnbRhythmLabels[i];
+        return kOplRhythmLabels[i];
+    }
+    if (isAdpcmChannel(device, slot)) return "PCM";
     switch (device) {
     case Device::SSGS:  return kSsgsLabels[slot];
     case Device::DCSG1:
     case Device::DCSG2: return kDcsgLabels[slot];
-    case Device::OPL2EX1:
-    case Device::OPL2EX2: return (slot == kChannelAdpcm) ? "PCM" : kNumberLabels[slot];
+    case Device::OPL3:  return (slot >= kOpl3FourOpFirst) ? kQuadLabels[slot - kOpl3FourOpFirst] : kNumberLabels[slot];
+    case Device::OPNA:
+    case Device::OPNB:  return (slot >= kOpnSsgFirst) ? kOpnSsgLabels[slot - kOpnSsgFirst] : kNumberLabels[slot];
     default: return kNumberLabels[slot];
     }
 }
@@ -72,24 +88,8 @@ ImU32 blend(ImU32 a, ImU32 b, float t) {
 
 namespace {
 
-// そのブロックが持っているチャンネル（bytecode.md「デバイス番号とチャンネル番号」）。
-int melodyChannels(Device device) {
-    switch (device) {
-    case Device::SSGS:    return 6;
-    case Device::DCSG1:
-    case Device::DCSG2:   return 4;
-    case Device::SCC:     return 5;
-    default:              return 9;    // OPLLEX と OPL2EX の旋律チャンネル
-    }
-}
-
-bool hasRhythm(Device device) {
-    return device != Device::SSGS && device != Device::DCSG1 &&
-           device != Device::DCSG2 && device != Device::SCC;
-}
-
-bool hasAdpcm(Device device) {
-    return device == Device::OPL2EX1 || device == Device::OPL2EX2;
+void useRhythmSlots(std::array<bool, kActivitySlots>& used, Device device) {
+    for (int i = 0; i < rhythmInstruments(device); ++i) used[static_cast<size_t>(kRhythmSlotFirst + i)] = true;
 }
 
 } // namespace
@@ -105,20 +105,19 @@ void LevelMeter::update(const PlaybackEngine& engine, const SequenceBlock& block
         for (size_t d = 0; d < kDeviceCount; ++d) {
             const Device device = static_cast<Device>(d);
             bandUsed_[d] = true;
-            for (int c = 0; c < melodyChannels(device); ++c) slotUsed_[d][static_cast<size_t>(c)] = true;
-            if (hasAdpcm(device)) slotUsed_[d][kChannelAdpcm] = true;
-            if (hasRhythm(device)) {
-                for (int i = 0; i < 5; ++i) slotUsed_[d][static_cast<size_t>(kRhythmSlotFirst + i)] = true;
+            for (uint8_t c = 0; c < kMaxChannels; ++c) {
+                if (channelExists(device, c) && !isRhythmChannel(device, c)) slotUsed_[d][c] = true;
             }
+            useRhythmSlots(slotUsed_[d], device);
         }
     } else if (haveBlock) {
         for (const TrackData& t : block.tracks) {
             if (!t.assigned) continue;
             const size_t d = static_cast<size_t>(t.device);
             bandUsed_[d] = true;
-            if (t.channel == kChannelRhythm) {
-                for (int i = 0; i < 5; ++i) slotUsed_[d][static_cast<size_t>(kRhythmSlotFirst + i)] = true;
-            } else if (t.channel < kActivitySlots) {
+            if (isRhythmChannel(t.device, t.channel)) {
+                useRhythmSlots(slotUsed_[d], t.device);
+            } else if (t.channel < kRhythmSlotFirst) {
                 slotUsed_[d][t.channel] = true;
             }
         }
@@ -213,9 +212,11 @@ bool LevelMeter::draw(MuteState& mutes, std::array<float, kDeviceCount>& gainDb)
             const ImVec2 trackMax(pos.x + kBarWidth, pos.y + kBarHeight);
             ++column;
 
-            // リズムの5つの楽器は、チャンネル 10 の1本として黙る。
-            const uint8_t channel = (s >= kRhythmSlotFirst) ? kChannelRhythm : static_cast<uint8_t>(s);
-            const bool muted = mutes.muted(static_cast<Device>(d), channel);
+            // リズムの楽器は、リズムチャンネルの1本として黙る。
+            const Device device = static_cast<Device>(d);
+            const uint8_t channel = (s >= kRhythmSlotFirst) ? static_cast<uint8_t>(rhythmChannel(device))
+                                                            : static_cast<uint8_t>(s);
+            const bool muted = mutes.muted(device, channel);
 
             // バーをクリックすると、そのチャンネルのミュートが切り替わる。
             ImGui::SetCursorScreenPos(pos);
@@ -258,7 +259,7 @@ bool LevelMeter::draw(MuteState& mutes, std::array<float, kDeviceCount>& gainDb)
             if (muted) dl->AddRectFilled(pos, trackMax, IM_COL32(0, 0, 0, 170));
             dl->AddRect(pos, trackMax, muted ? IM_COL32(200, 60, 60, 255) : IM_COL32(70, 70, 75, 255));
 
-            const char* label = slotLabel(static_cast<Device>(d), static_cast<uint8_t>(s));
+            const char* label = slotLabel(device, static_cast<uint8_t>(s));
             const ImVec2 size = ImGui::CalcTextSize(label);
             dl->AddText(ImVec2(pos.x + (kBarWidth - size.x) * 0.5f, trackMax.y + 2.0f),
                         muted ? IM_COL32(230, 80, 80, 255) : IM_COL32(200, 200, 200, 255), label);

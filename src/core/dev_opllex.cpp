@@ -21,17 +21,17 @@ constexpr uint8_t kRegCount  = 0x49;
 constexpr uint8_t kKey       = 0x10;
 constexpr uint8_t kRhythmOn  = 0x20;
 constexpr uint8_t kVolMin    = 15;
-constexpr uint8_t kVoiceBanked = 64;
 
-// 音色レコードの中の位置（seqdef.inc の VP_*／VO_*）。
-constexpr int kRecFb   = 10;
-constexpr int kRecMod  = 16;
-constexpr int kRecCar  = 24;
-constexpr int kOpMult  = 0;
-constexpr int kOpTl    = 1;
-constexpr int kOpAr    = 2;
-constexpr int kOpSl    = 3;
-constexpr int kOpWave  = 5;
+// 音色レコード（チャンク 01、seqdef.inc の VP_*／VO_*）の中の位置。
+constexpr int kRecFb    = 0;
+constexpr int kRecTrans = 1;
+constexpr int kRecMod   = 2;
+constexpr int kRecCar   = 7;
+constexpr int kOpTl     = 0;
+constexpr int kOpAr     = 1;
+constexpr int kOpSl     = 2;
+constexpr int kOpMult   = 3;
+constexpr int kOpWave   = 4;
 
 // リズムモードで ch6-8 が持つ音程。MSX-MUSIC の FMBIOS が置く値。
 constexpr uint8_t kRhythmPitch[][2] = {
@@ -55,6 +55,7 @@ public:
             write(static_cast<uint8_t>(kRegInsVol + ch), kVolMin);
             fnh_[ch] = 0;
             insVol_[ch] = kVolMin;
+            transpose_[ch] = 0;
         }
         rhythm_ = RhythmState{};
     }
@@ -97,9 +98,12 @@ public:
         write(static_cast<uint8_t>(kRegInsVol + ch), insVol_[ch]);
     }
 
+    // 音色の移調を先に足す（OPL2EX と同じ）。チップのプリセットの移調は 0。
     void setPitch(uint8_t ch, uint8_t note, int16_t bend) override {
         if (ch >= kChannels) return;
-        const OplPitch p = oplPitch(false, note, bend);
+        const int wanted = static_cast<int>(note) + transpose_[ch];
+        const uint8_t clamped = static_cast<uint8_t>(wanted < 0 ? 0 : (wanted > 255 ? 255 : wanted));
+        const OplPitch p = oplPitch(false, clamped, bend);
         write(static_cast<uint8_t>(kRegFnumL + ch), static_cast<uint8_t>(p.fnum & 0xFF));
         // キーは演奏側のもの、サステインと bit7-6 は `Y` のもの。
         fnh_[ch] = static_cast<uint8_t>((fnh_[ch] & 0xF0) |
@@ -107,14 +111,13 @@ public:
         write(static_cast<uint8_t>(kRegFnumH + ch), fnh_[ch]);
     }
 
-    // 65-127 はチップ内蔵の音色（値から 64 を引いて bit5-4 がバンク、bit3-0 が
-    // プリセット）。0-63 は音色表の音色で、ブロックはレコードを持つので `85` で来る
-    // ―― こちらは表を持たないので捨てる（doc/rom-feedback.md の B1）。
+    // チップ内蔵の音色。bit5-4 がバンク、bit3-0 がプリセットで、bit7-6 は見ない。
+    // プリセット 0 はチップのユーザー音色で、そのとき読み込まれているものが鳴る。
     void setVoice(uint8_t ch, uint8_t number) override {
-        if (ch >= kChannels || number < kVoiceBanked) return;
-        const uint8_t v = static_cast<uint8_t>(number - kVoiceBanked);
-        write(static_cast<uint8_t>(kRegBank + ch), static_cast<uint8_t>((v >> 4) & 3));
-        selectInstrument(ch, static_cast<uint8_t>(v & 0x0F));
+        if (ch >= kChannels) return;
+        transpose_[ch] = 0;
+        write(static_cast<uint8_t>(kRegBank + ch), static_cast<uint8_t>((number >> 4) & 3));
+        selectInstrument(ch, static_cast<uint8_t>(number & 0x0F));
     }
 
     // チップはレコードをユーザー音色レジスタにしか取らないので、1ブロックが同時に
@@ -126,17 +129,20 @@ public:
         write(kRegUser + 0, r[kRecMod + kOpMult]);
         write(kRegUser + 1, r[kRecCar + kOpMult]);
         write(kRegUser + 2, r[kRecMod + kOpTl]);
-        // 03h はキャリアのキースケール、両オペレータの波形1ビットずつ、
-        // フィードバックを組み合わせたもの。
+        // 03h はキャリアのキースケール、両オペレータの波形の bit0、フィードバックを
+        // 組み合わせたもの。キャリアのレベルと接続はチップに置き場所が無い。
         uint8_t v03 = static_cast<uint8_t>(r[kRecCar + kOpTl] & 0xC0);
-        v03 = static_cast<uint8_t>(v03 | ((r[kRecCar + kOpWave] >> 4) & 0x10));
-        v03 = static_cast<uint8_t>(v03 | ((r[kRecMod + kOpWave] >> 5) & 0x08));
+        v03 = static_cast<uint8_t>(v03 | ((r[kRecCar + kOpWave] << 4) & 0x10));
+        v03 = static_cast<uint8_t>(v03 | ((r[kRecMod + kOpWave] << 3) & 0x08));
         v03 = static_cast<uint8_t>(v03 | ((r[kRecFb] >> 1) & 0x07));
         write(kRegUser + 3, v03);
         write(kRegUser + 4, r[kRecMod + kOpAr]);
         write(kRegUser + 5, r[kRecCar + kOpAr]);
         write(kRegUser + 6, r[kRecMod + kOpSl]);
         write(kRegUser + 7, r[kRecCar + kOpSl]);
+        // 移調はチャンネルごと。ユーザー音色はブロックに1つでも、プリセットで鳴る
+        // チャンネルは自分の移調（0）を持つ。
+        transpose_[ch] = static_cast<int8_t>(r[kRecTrans]);
         selectInstrument(ch, 0);         // ユーザー音色は楽器 0
     }
 
@@ -154,13 +160,15 @@ public:
         write(kRegRhythm, rhythm_.mode);
     }
 
-    bool regRead(uint8_t reg, uint8_t& value) override {
+    bool regRead(uint8_t port, uint8_t reg, uint8_t& value) override {
+        if (port != 0) return false;
         if (reg >= kRegCount) return false;
         value = shadow_[reg];
         return true;
     }
 
-    bool regWrite(uint8_t reg, uint8_t value) override {
+    bool regWrite(uint8_t port, uint8_t reg, uint8_t value) override {
+        if (port != 0) return false;
         if (reg >= kRegCount) return false;
         write(reg, value);
         // `Y` の書き込みを、ドライバが組み立てに使う控えにも入れる。
@@ -202,6 +210,7 @@ private:
     std::array<uint8_t, kRegCount> shadow_{};
     std::array<uint8_t, kChannels> fnh_{};
     std::array<uint8_t, kChannels> insVol_{};
+    std::array<int8_t,  kChannels> transpose_{};
     RhythmState rhythm_;
 };
 

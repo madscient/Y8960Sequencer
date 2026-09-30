@@ -18,10 +18,15 @@ constexpr uint8_t kChunkFmVoice = 0x01;
 constexpr uint8_t kChunkSccWave = 0x02;
 constexpr uint8_t kChunkAdpcm   = 0x03;
 constexpr uint8_t kChunkEnvelope = 0x04;
+constexpr uint8_t kChunkDeviceFirst = 0x40;   // 40-7F は1つのデバイスに属する
+constexpr uint8_t kChunkOpnVoice = 0x40;
+constexpr uint8_t kChunkAdpcmA   = 0x41;
+constexpr uint8_t kChunkFm4op    = 0x42;
 constexpr uint8_t kChunkSkippableFirst = 0x80;
 
 constexpr size_t kAdpcmChunkSize = 7;
 constexpr size_t kEnvelopeChunkSize = 5;
+constexpr size_t kAdpcmAChunkSize = 6;
 constexpr uint16_t kAdpcmRateMin = 1800;
 constexpr uint16_t kAdpcmRateMax = 16000;
 
@@ -35,24 +40,10 @@ uint16_t readLe16(const uint8_t* p) {
     return static_cast<uint16_t>(p[0] | (p[1] << 8));
 }
 
-bool isFmDevice(Device d) {
+// リズムチャンネルと排他になる 6-8 を持つデバイス。
+bool isOplFamily(Device d) {
     return d == Device::OPLLEX1 || d == Device::OPLLEX2 ||
-           d == Device::OPL2EX1 || d == Device::OPL2EX2;
-}
-
-// リズムモードを決める前に分かる範囲の検査。6-8 と 10 の両立は後で見る。
-bool channelInRange(Device d, uint8_t ch) {
-    switch (d) {
-    case Device::SSGS:    return ch < 6;
-    case Device::OPLLEX1:
-    case Device::OPLLEX2: return ch <= 8 || ch == kChannelRhythm;
-    case Device::OPL2EX1:
-    case Device::OPL2EX2: return ch <= kChannelRhythm;
-    case Device::DCSG1:
-    case Device::DCSG2:   return ch < 4;
-    case Device::SCC:     return ch < 5;
-    }
-    return false;
+           d == Device::OPL2EX1 || d == Device::OPL2EX2 || d == Device::OPL3;
 }
 
 std::string hex2(unsigned v) {
@@ -63,7 +54,79 @@ std::string hex2(unsigned v) {
     return s;
 }
 
+// 4OP のチャンネル 18-23 が組にする 2OP の前側。後ろ側はこれに 3 を足したもの。
+uint8_t fourOpFront(uint8_t ch) {
+    const uint8_t i = static_cast<uint8_t>(ch - kOpl3FourOpFirst);
+    return static_cast<uint8_t>((i < 3) ? i : 9 + (i - 3));
+}
+
 } // namespace
+
+bool channelExists(Device device, unsigned channel) {
+    switch (device) {
+    case Device::SSGS:    return channel < 6;
+    case Device::OPLLEX1:
+    case Device::OPLLEX2: return channel <= 8 || channel == kChannelRhythm;
+    case Device::OPL2EX1:
+    case Device::OPL2EX2: return channel <= kChannelRhythm;
+    case Device::DCSG1:
+    case Device::DCSG2:   return channel < 4;
+    case Device::SCC:     return channel < 5;
+    case Device::OPL3:    return channel <= kOpl3Rhythm;
+    case Device::OPM:     return channel < 8;
+    case Device::OPNA:
+    case Device::OPNB:    return channel <= kOpnAdpcmB;
+    }
+    return false;
+}
+
+int rhythmChannel(Device device) {
+    switch (device) {
+    case Device::OPLLEX1:
+    case Device::OPLLEX2:
+    case Device::OPL2EX1:
+    case Device::OPL2EX2: return kChannelRhythm;
+    case Device::OPL3:    return kOpl3Rhythm;
+    case Device::OPNA:
+    case Device::OPNB:    return kOpnRhythm;
+    default:              return -1;
+    }
+}
+
+bool isRhythmChannel(Device device, uint8_t channel) {
+    return rhythmChannel(device) == channel;
+}
+
+int rhythmInstruments(Device device) {
+    if (device == Device::OPNA || device == Device::OPNB) return 6;
+    return rhythmChannel(device) < 0 ? 0 : 5;
+}
+
+bool isAdpcmChannel(Device device, uint8_t channel) {
+    switch (device) {
+    case Device::OPL2EX1:
+    case Device::OPL2EX2: return channel == kChannelAdpcm;
+    case Device::OPNA:
+    case Device::OPNB:    return channel == kOpnAdpcmB;
+    default:              return false;
+    }
+}
+
+bool ownsVoiceSet(Device device) {
+    return device == Device::OPM || device == Device::OPNA || device == Device::OPNB;
+}
+
+const VoiceRecord* SequenceBlock::seqVoice(Device device, uint8_t index) const {
+    const VoiceRecord* rec = nullptr;
+    if (ownsVoiceSet(device)) {
+        if (index < kVoiceSetSize) {
+            rec = &deviceVoices[static_cast<size_t>(device) - static_cast<size_t>(Device::OPM)][index];
+        }
+    } else if (index < kVoiceSlots) {
+        rec = &voices[index];
+    }
+    return (rec && rec->kind != RecordKind::None) ? rec : nullptr;
+}
 
 BlockLocation locateBlock(const uint8_t* data, size_t size) {
     BlockLocation loc;
@@ -115,6 +178,7 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
             return false;
         }
         const uint8_t* p = data + body;
+        pos = body + len;
 
         if (type == kChunkTrack) {
             if (len < kTrackHeadSize + 1 || len > kTrackHeadSize + kMaxTrackBytes) {
@@ -128,13 +192,16 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 error = "track number " + std::to_string(trackNo) + " is out of range";
                 return false;
             }
+            // 鳴らさないデバイスのトラックは割り当てず、残りを鳴らす（bytecode.md
+            // 「版と、知らないものに出会ったとき」）。形式がまだ名前を付けていない
+            // 番号も同じ扱い。
             if (dev >= kDeviceCount) {
-                error = "track " + std::to_string(trackNo) + ": device number " +
-                        std::to_string(dev) + " is out of range";
-                return false;
+                out.warnings.push_back("track " + std::to_string(trackNo) + ": device " +
+                                       std::to_string(dev) + " is not played");
+                continue;
             }
             const Device device = static_cast<Device>(dev);
-            if (!channelInRange(device, ch)) {
+            if (!channelExists(device, ch)) {
                 error = "track " + std::to_string(trackNo) + ": device " + std::to_string(dev) +
                         " has no channel " + std::to_string(ch);
                 return false;
@@ -145,8 +212,10 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
             t.channel  = ch;
             t.events.assign(p + kTrackHeadSize, p + len);
         } else if (type == kChunkFmVoice || type == kChunkSccWave) {
-            if (len != 1 + kVoiceRecSize) {
-                error = "voice chunk length " + std::to_string(len) + " is not 33";
+            const size_t rec = (type == kChunkFmVoice) ? kFmVoiceSize : kSccWaveSize;
+            if (len != 1 + rec) {
+                error = "voice chunk " + hex2(type) + " length " + std::to_string(len) +
+                        " is not " + std::to_string(1 + rec);
                 return false;
             }
             const uint8_t index = p[0];
@@ -155,8 +224,9 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 return false;
             }
             VoiceRecord& v = out.voices[index];
+            v = VoiceRecord{};
             v.kind = (type == kChunkFmVoice) ? RecordKind::FmVoice : RecordKind::SccWave;
-            std::memcpy(v.data.data(), p + 1, kVoiceRecSize);
+            std::memcpy(v.data.data(), p + 1, rec);
         } else if (type == kChunkAdpcm) {
             // 壊れていてもブロックは拒まない ―― 書き手の ROM も読み手の ROM も中身を
             // 検査せず、このチャンクを使わなくても曲は鳴る（bytecode.md「チャンク」）。
@@ -198,40 +268,111 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
             e.dr = p[2];
             e.sl = p[3];
             e.rr = p[4];
+        } else if (type >= kChunkDeviceFirst && type < kChunkSkippableFirst) {
+            // 中身の先頭がデバイス番号。鳴らさないデバイスのものは読み飛ばす。
+            if (len == 0) {
+                error = "chunk " + hex2(type) + " has no device number";
+                return false;
+            }
+            const uint8_t dev = p[0];
+            if (dev >= kDeviceCount) continue;
+            const Device device = static_cast<Device>(dev);
+            if (type == kChunkOpnVoice) {
+                if (!ownsVoiceSet(device)) {
+                    error = "chunk 40h names device " + std::to_string(dev);
+                    return false;
+                }
+                if (len != 2 + kOpnVoiceSize) {
+                    error = "voice chunk 40h length " + std::to_string(len) + " is not 34";
+                    return false;
+                }
+                if (p[1] >= kVoiceSetSize) {
+                    error = "voice index " + std::to_string(p[1]) + " is out of range";
+                    return false;
+                }
+                VoiceRecord& v = out.deviceVoices[dev - static_cast<size_t>(Device::OPM)][p[1]];
+                v.kind = RecordKind::OpnVoice;
+                std::memcpy(v.data.data(), p + 2, kOpnVoiceSize);
+            } else if (type == kChunkAdpcmA) {
+                // ADPCM-A を持つのは OPNB だけ。ほかのデバイス 8-10 のものは鳴るものを
+                // 変えないので受け取って捨てる。デバイス 0-7 のものは ROM の読み手と
+                // 同じく拒む。
+                if (dev < static_cast<uint8_t>(Device::OPL3)) {
+                    error = "chunk 41h names device " + std::to_string(dev);
+                    return false;
+                }
+                if (len != kAdpcmAChunkSize) {
+                    error = "ADPCM-A chunk length " + std::to_string(len) + " is not 6";
+                    return false;
+                }
+                if (device == Device::OPNB) {
+                    AdpcmASample& a = out.adpcmA[p[1]];
+                    a.present   = true;
+                    a.startPage = readLe16(p + 2);
+                    a.pages     = readLe16(p + 4);
+                }
+            } else if (type == kChunkFm4op) {
+                if (device != Device::OPL3) {
+                    error = "chunk 42h names device " + std::to_string(dev);
+                    return false;
+                }
+                if (len != 2 + kFm4opSize) {
+                    error = "voice chunk 42h length " + std::to_string(len) + " is not 26";
+                    return false;
+                }
+                if (p[1] >= kVoiceSetSize) {
+                    error = "voice index " + std::to_string(p[1]) + " is out of range";
+                    return false;
+                }
+                VoiceRecord& v = out.voices[p[1]];
+                v = VoiceRecord{};
+                v.kind = RecordKind::Fm4op;
+                std::memcpy(v.data.data(), p + 2, kFm4opSize);
+            } else {
+                error = "unknown chunk type " + hex2(type) + " for device " + std::to_string(dev);
+                return false;
+            }
         } else if (type < kChunkSkippableFirst) {
             error = "unknown chunk type " + hex2(type);
             return false;
         }
-        pos = body + len;
     }
 
-    // チャンネルの重複と、リズムモードの推定。
-    std::array<uint16_t, kDeviceCount> used{};
-    std::array<bool, kDeviceCount> hasMelody68{};
-    std::array<bool, kDeviceCount> hasRhythm{};
+    // チャンネルの重複と排他、リズムモードの推定。4OP で鳴らすかは音色が決めるので、
+    // ここでは組が1つのトラックのものであることだけを見る。
+    std::array<uint32_t, kDeviceCount> used{};
     for (int i = 0; i < kTrackCount; ++i) {
         const TrackData& t = out.tracks[i];
         if (!t.assigned) continue;
         const int d = static_cast<int>(t.device);
-        const uint16_t bit = static_cast<uint16_t>(1u << t.channel);
+        const uint32_t bit = 1u << t.channel;
         if (used[d] & bit) {
             error = "device " + std::to_string(d) + ": channel " +
                     std::to_string(t.channel) + " is held by more than one track";
             return false;
         }
         used[d] |= bit;
-        if (isFmDevice(t.device)) {
-            if (t.channel >= 6 && t.channel <= 8) hasMelody68[d] = true;
-            if (t.channel == kChannelRhythm)      hasRhythm[d]   = true;
-        }
     }
+    constexpr uint32_t kCh68 = 0x1C0;
     for (int d = 0; d < kDeviceCount; ++d) {
-        if (hasMelody68[d] && hasRhythm[d]) {
-            error = "device " + std::to_string(d) +
-                    " holds both channels 6-8 and the rhythm channel";
+        const Device device = static_cast<Device>(d);
+        if (!isOplFamily(device)) continue;
+        const int rc = rhythmChannel(device);
+        const bool rhythm = (used[d] >> rc) & 1;
+        if (rhythm && (used[d] & kCh68)) {
+            error = "device " + std::to_string(d) + " holds both channels 6-8 and the rhythm channel";
             return false;
         }
-        out.rhythmMode[d] = hasRhythm[d];
+        out.rhythmMode[d] = rhythm;
+    }
+    const uint32_t opl3 = used[static_cast<size_t>(Device::OPL3)];
+    for (uint8_t ch = kOpl3FourOpFirst; ch < kOpl3Rhythm; ++ch) {
+        if (!((opl3 >> ch) & 1)) continue;
+        const uint8_t front = fourOpFront(ch);
+        if (opl3 & ((1u << front) | (1u << (front + 3)))) {
+            error = "device 8: channel " + std::to_string(ch) + " and a channel it pairs are both held";
+            return false;
+        }
     }
     return true;
 }

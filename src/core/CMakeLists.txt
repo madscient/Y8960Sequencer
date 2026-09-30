@@ -3,7 +3,10 @@ add_library(y8960core STATIC
     chips.cpp
     dev_dcsg.cpp
     dev_opl2ex.cpp
+    dev_opl3.cpp
     dev_opllex.cpp
+    dev_opm.cpp
+    dev_opn.cpp
     dev_scc.cpp
     dev_ssgs.cpp
     device.cpp

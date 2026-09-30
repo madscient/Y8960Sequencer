@@ -54,6 +54,11 @@ int main() {
         CHECK(parses("!DCSG1,3", s) && s.except && s.kind == MuteSpec::Kind::Channel);
         CHECK(parses("!T3", s) && s.except && s.track == 3);
         CHECK(parses("!C", s) && s.except && s.track == 2);
+        // デバイス 8-11
+        CHECK(parses("opl3,24", s) && s.device == Device::OPL3 && s.channel == 24);
+        CHECK(parses("OPM", s) && s.kind == MuteSpec::Kind::Chip && s.device == Device::OPM);
+        CHECK(parses("OPNA,10", s) && s.device == Device::OPNA && s.channel == 10);
+        CHECK(parses("OPNB,9", s) && s.device == Device::OPNB);
     }
     CHECK(!parses(""));
     CHECK(!parses("!"));
@@ -63,6 +68,9 @@ int main() {
     CHECK(!parses("OPLL"));
     CHECK(!parses("SCC,5"));      // SCC は 0-4
     CHECK(!parses("SSGS,6"));
+    CHECK(!parses("OPM,8"));      // OPM は 0-7
+    CHECK(!parses("OPL3,25"));
+    CHECK(!parses("OPNA,11"));
     CHECK(!parses("OPLLEX1,9"));  // ADPCM は OPL2EX だけ
     CHECK(parses("OPL2EX1,9"));
     CHECK(!parses("DCSG1,x"));

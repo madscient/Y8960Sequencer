@@ -8,6 +8,7 @@ namespace {
 
 const char* const kSymbols[kDeviceCount] = {
     "SSGS", "OPLLEX1", "OPLLEX2", "OPL2EX1", "OPL2EX2", "DCSG1", "DCSG2", "SCC",
+    "OPL3", "OPM", "OPNA", "OPNB",
 };
 
 std::string upper(std::string s) {
@@ -21,21 +22,6 @@ bool allDigits(const std::string& s) {
         if (!std::isdigit(static_cast<unsigned char>(c))) return false;
     }
     return true;
-}
-
-// そのチップが持つチャンネルか（bytecode.md「デバイス番号とチャンネル番号」）。
-bool channelExists(Device device, unsigned channel) {
-    switch (device) {
-    case Device::SSGS:    return channel < 6;
-    case Device::OPLLEX1:
-    case Device::OPLLEX2: return channel <= 8 || channel == kChannelRhythm;
-    case Device::OPL2EX1:
-    case Device::OPL2EX2: return channel <= kChannelRhythm;
-    case Device::DCSG1:
-    case Device::DCSG2:   return channel < 4;
-    case Device::SCC:     return channel < 5;
-    }
-    return false;
 }
 
 } // namespace

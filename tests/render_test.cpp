@@ -19,16 +19,16 @@ namespace {
 
 constexpr uint32_t kRate = 48000;
 
-// 持続する FM 音色のレコード。20h の bit5（EG タイプ）が無いと、アタックの
-// 直後にリリースへ入る。
+// 持続する FM 音色のレコード（チャンク 01 の 12 バイト）。20h の bit5（EG タイプ）が
+// 無いと、アタックの直後にリリースへ入る。
 VoiceRecord fmVoice() {
     VoiceRecord v;
     v.kind = RecordKind::FmVoice;
     auto& d = v.data;
-    d[8] = 0; d[9] = 0;            // トランスポーズ 0
-    d[10] = 0x01;                  // CON = 1（並列）、FB 0
-    d[16 + 0] = 0x21; d[16 + 1] = 0x1F; d[16 + 2] = 0xF0; d[16 + 3] = 0x0F; d[16 + 5] = 0;
-    d[24 + 0] = 0x21; d[24 + 1] = 0x00; d[24 + 2] = 0xF0; d[24 + 3] = 0x0F; d[24 + 5] = 0;
+    d[0] = 0x01;                   // CON = 1（並列）、FB 0
+    d[1] = 0;                      // 移調 0
+    d[2] = 0x1F; d[3] = 0xF0; d[4] = 0x0F; d[5] = 0x21; d[6] = 0;     // モジュレータ
+    d[7] = 0x00; d[8] = 0xF0; d[9] = 0x0F; d[10] = 0x21; d[11] = 0;   // キャリア
     return v;
 }
 
@@ -49,6 +49,57 @@ void addTrack(SequenceBlock& b, int index, Device device, uint8_t channel,
     t.channel  = channel;
     t.events   = events;
     t.events.push_back(0xFF);
+}
+
+struct Stereo {
+    std::vector<float> l, r;
+};
+
+// 新しく開いたエミュレータでブロックを鳴らす。位相などの内部状態を揃えるため。
+Stereo renderFresh(const SequenceBlock& b, uint32_t samples, const std::vector<uint8_t>* adpcm = nullptr) {
+    Stereo out;
+    out.l.assign(samples, 0.0f);
+    out.r.assign(samples, 0.0f);
+    Y8960Chips c;
+    std::string err;
+    if (!c.open(executableDirectory(), kRate, err)) return out;
+    if (adpcm) c.loadAdpcmMemory(*adpcm);
+    DeviceSet d(c);
+    d.resetAll();
+    d.setAdpcmDirectory(b.adpcm.data());
+    d.setAdpcmASamples(b.adpcmA.data());
+    Sequencer s(d, TickRate::Hz200);
+    s.load(0, b);
+    Player p(c, s, TickRate::Hz200, kRate);
+    s.start(0, 1);
+    p.render(out.l.data(), out.r.data(), samples);
+    return out;
+}
+
+double rmsOf(const std::vector<float>& x, size_t from) {
+    double sum = 0;
+    for (size_t i = from; i < x.size(); ++i) sum += double(x[i]) * x[i];
+    return std::sqrt(sum / static_cast<double>(x.size() - from));
+}
+
+// 平均を引いた波形が負から正へ横切る時刻（線形補間）から、周期の平均を出す。
+double frequency(const std::vector<float>& x, size_t from) {
+    double mean = 0;
+    for (size_t i = from; i < x.size(); ++i) mean += x[i];
+    mean /= static_cast<double>(x.size() - from);
+    double first = -1, last = -1;
+    int crossings = 0;
+    for (size_t i = from + 1; i < x.size(); ++i) {
+        const double a = x[i - 1] - mean, b = x[i] - mean;
+        if (a < 0 && b >= 0) {
+            const double t = static_cast<double>(i - 1) + a / (a - b);
+            if (first < 0) first = t;
+            last = t;
+            ++crossings;
+        }
+    }
+    if (crossings < 2) return 0;
+    return (crossings - 1) * static_cast<double>(kRate) / (last - first);
 }
 
 double rms(Player& player, uint32_t samples) {
@@ -311,8 +362,8 @@ int main() {
         SequenceBlock only;
         only.version = 1;
         VoiceRecord v = fmVoice();
-        v.data[16 + 1] = 0x3F;       // モジュレータは鳴らさない
-        v.data[24 + 5] = 0x01;       // キャリアは半波サイン
+        v.data[2] = 0x3F;            // モジュレータは鳴らさない
+        v.data[11] = 0x01;           // キャリアは半波サイン
         only.voices[0] = v;
         addTrack(only, 0, Device::OPL2EX1, 0, {0x85, 0x00, 0x00, 96});
 
@@ -328,6 +379,115 @@ int main() {
         std::printf("opl2ex half sine: min=%.4f max=%.4f\n", *lo, *hi);
         CHECK(*hi > 0.005f);
         CHECK(*lo > -0.1f * *hi);
+    }
+
+    // デバイス 8-11（YMEngine）。O4 A を鳴らし、出てきた音の高さを測る。F-Number・KC・
+    // 分周値の計算と、チップのクロックの前提が合っていれば 440Hz になる。
+    {
+        const auto fmVoice4op = [] {
+            VoiceRecord v;
+            v.kind = RecordKind::Fm4op;
+            v.data[0] = 0x00;                            // FM-FM。キャリアは OP4 だけ
+            v.data[3] = 0x01;                            // CS：4OP で鳴らす
+            for (int op = 0; op < 4; ++op) {
+                uint8_t* o = v.data.data() + 4 + op * 5;
+                o[0] = (op == 3) ? 0x00 : 0x3F;
+                o[1] = 0xF0; o[2] = 0x0F; o[3] = 0x21; o[4] = 0;
+            }
+            return v;
+        };
+        const auto sineOpn = [] {
+            VoiceRecord v;
+            v.kind = RecordKind::OpnVoice;
+            v.data[0] = 0x07;                            // AL 7。C2 だけを鳴らす
+            v.data[3] = 0xF0;
+            for (int op = 0; op < 4; ++op) {
+                uint8_t* o = v.data.data() + 4 + op * 7;
+                o[0] = (op == 3) ? 0x00 : 0x7F;
+                o[1] = 0x1F; o[4] = 0x0F; o[6] = 0x01;
+            }
+            return v;
+        };
+        VoiceRecord sine2op = fmVoice();
+        sine2op.data[0] = 0x00;                          // FM。モジュレータは黙らせる
+        sine2op.data[2] = 0x3F;
+
+        struct Case {
+            const char* name;
+            Device      device;
+            uint8_t     channel;
+        };
+        const Case cases[] = {
+            {"OPL3 ch0", Device::OPL3, 0},  {"OPL3 ch9", Device::OPL3, 9},  {"OPL3 ch18", Device::OPL3, 18},
+            {"OPM ch0", Device::OPM, 0},
+            {"OPNA ch0", Device::OPNA, 0},  {"OPNA ch3", Device::OPNA, 3},  {"OPNA ch6", Device::OPNA, 6},
+            {"OPNB ch1", Device::OPNB, 1},  {"OPNB ch4", Device::OPNB, 4},  {"OPNB ch6", Device::OPNB, 6},
+        };
+        for (const Case& c : cases) {
+            SequenceBlock b;
+            b.version = 1;
+            b.voices[0] = (c.channel == 18) ? fmVoice4op() : sine2op;
+            b.deviceVoices[static_cast<size_t>(Device::OPNB) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
+            b.deviceVoices[static_cast<size_t>(Device::OPNA) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
+            b.deviceVoices[0][0] = sineOpn();
+            // 左だけに出す。右が黙っていれば `87` がチップの左右に届いている。SSG は定位を持たない。
+            addTrack(b, 0, c.device, c.channel, {0x85, 0x00, 0x87, 0x00, 0x80, 4, 0x09, 96});
+            const Stereo out = renderFresh(b, kRate / 2);
+            const double f = frequency(out.l, kRate / 10);
+            const double r = rmsOf(out.r, kRate / 10);
+            const double l = rmsOf(out.l, kRate / 10);
+            std::printf("%-10s %.2fHz  L rms=%.4f R rms=%.4f\n", c.name, f, l, r);
+            CHECK(std::fabs(f - 440.0) < 4.4);
+            CHECK(l > 0.005);
+            const bool ssg = (c.channel == kOpnSsgFirst);
+            if (!ssg) CHECK(r < l * 0.01);
+        }
+    }
+
+    // OPNA・OPNB の ADPCM-B が、OPL2EX と同じ ADPCM メモリを同じボイスファイルの置き場所で
+    // 読むこと。中身を変えて出力が変わることを見る（OPL2EX の ADPCM と同じ観点）。
+    for (Device d : {Device::OPNA, Device::OPNB}) {
+        SequenceBlock b;
+        b.version = 1;
+        b.adpcm[0] = AdpcmVoiceFile{true, 4, 4, 8000};
+        addTrack(b, 0, d, kOpnAdpcmB, {0x82, 0x00, 0x80, 5, 0x04, 48});
+        std::vector<uint8_t> patternA(8 * 256), patternB(8 * 256);
+        for (size_t i = 0; i < patternA.size(); ++i) {
+            patternA[i] = static_cast<uint8_t>((i % 8 < 4) ? 0x33 : 0xCC);
+            patternB[i] = static_cast<uint8_t>((i % 32 < 16) ? 0x77 : 0x99);
+        }
+        // 置き場所の外（ページ 0-3）だけを変えても、出力は変わらない。
+        std::vector<uint8_t> patternC = patternA;
+        for (size_t i = 0; i < 4 * 256; ++i) patternC[i] = 0x5A;
+        const Stereo a = renderFresh(b, kRate / 5, &patternA);
+        const Stereo bb = renderFresh(b, kRate / 5, &patternB);
+        const Stereo cc = renderFresh(b, kRate / 5, &patternC);
+        double diff = 0, same = 0;
+        for (size_t i = 0; i < a.l.size(); ++i) {
+            diff += std::fabs(double(a.l[i]) - bb.l[i]);
+            same += std::fabs(double(a.l[i]) - cc.l[i]);
+        }
+        diff /= static_cast<double>(a.l.size());
+        same /= static_cast<double>(a.l.size());
+        std::printf("%s ADPCM-B: rms=%.4f  A vs B %.5f  A vs C %.5f\n", d == Device::OPNA ? "OPNA" : "OPNB",
+                    rmsOf(a.l, 0), diff, same);
+        CHECK(rmsOf(a.l, 0) > 0.005);
+        CHECK(diff > 0.001);
+        CHECK(same < diff * 0.01);
+    }
+
+    // OPNA のリズムと OPNB の ADPCM-A は、サンプルの中身をこのプレイヤーが渡せない
+    // （OPNA は内蔵 ROM、OPNB はサンプル ROM）。中身が無いと 0 のバイト列を復号した
+    // 大きな雑音になるので、叩いても鳴らないこと。
+    {
+        SequenceBlock b;
+        b.version = 1;
+        b.adpcmA[0] = AdpcmASample{true, 0, 16};
+        addTrack(b, 0, Device::OPNA, kOpnRhythm, {0xA9, 15, 0xC8, 0x3F, 96});
+        addTrack(b, 1, Device::OPNB, kOpnRhythm, {0xA9, 15, 0xD9, 0x3F, 0, 0xC8, 0x3F, 96});
+        const Stereo out = renderFresh(b, kRate / 2);
+        std::printf("ADPCM-A without samples: rms=%.5f\n", rmsOf(out.l, 0));
+        CHECK(rmsOf(out.l, 0) < 0.001);
     }
 
     return check::finish("render_test");

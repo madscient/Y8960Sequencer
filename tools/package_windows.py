@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Windows 版の配布 zip を作る。
 
-3つのエミュレータとこのリポジトリを、CRT を静的リンクした Release でビルドし、
+4つのエミュレータとこのリポジトリを、CRT を静的リンクした Release でビルドし、
 実行ファイル・ライブラリ・ライセンス文を1つの zip にまとめる。
 
     python tools/package_windows.py v0.1.0
@@ -18,8 +18,8 @@ import sys
 import zipfile
 from pathlib import Path
 
-EMULATORS = ["Y8960emu", "EPSGemuEngine", "DSAemuEngine"]
-LIBRARIES = ["Y8960emuEngine.dll", "EPSGemuEngine.dll", "DSAemuEngine.dll"]
+EMULATORS = ["Y8960emu", "EPSGemuEngine", "DSAemuEngine", "YMEngine"]
+LIBRARIES = ["Y8960emuEngine.dll", "EPSGemuEngine.dll", "DSAemuEngine.dll", "YMFMEngine.dll"]
 THIRD_PARTY = [
     ("Y8960emu", "extern/ymfm/LICENSE", "ymfm.txt"),
     ("EPSGemuEngine", "extern/ay8910/LICENSE", "ay8910.txt"),
@@ -78,6 +78,11 @@ def main():
         print(f"{name}: {head}{' (uncommitted changes)' if dirty else ''}")
         if dirty:
             sys.exit(f"{name} has uncommitted changes")
+    # 同梱物のライセンス文は、ビルドに時間を使う前に揃っていることを見る。
+    missing = [name for name in EMULATORS if not (root / name / "LICENSE").is_file()]
+    missing += [f"{name}/{src}" for name, src, _ in THIRD_PARTY if not (root / name / src).is_file()]
+    if missing:
+        sys.exit("license text not found: " + ", ".join(missing))
 
     # 前のビルドが実際のパスで構成されていると、同じフォルダを別のパスから
     # 構成し直せない。

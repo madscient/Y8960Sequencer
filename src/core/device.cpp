@@ -11,6 +11,10 @@ DeviceSet::DeviceSet(ChipBus& bus) {
     devices_[static_cast<size_t>(Device::DCSG1)]   = makeDcsgDevice(bus, Device::DCSG1, envelope_);
     devices_[static_cast<size_t>(Device::DCSG2)]   = makeDcsgDevice(bus, Device::DCSG2, envelope_);
     devices_[static_cast<size_t>(Device::SCC)]     = makeSccDevice(bus, envelope_);
+    devices_[static_cast<size_t>(Device::OPL3)]    = makeOpl3Device(bus);
+    devices_[static_cast<size_t>(Device::OPM)]     = makeOpmDevice(bus);
+    devices_[static_cast<size_t>(Device::OPNA)]    = makeOpnDevice(bus, Device::OPNA, envelope_);
+    devices_[static_cast<size_t>(Device::OPNB)]    = makeOpnDevice(bus, Device::OPNB, envelope_);
 }
 
 DeviceSet::~DeviceSet() = default;
@@ -22,6 +26,10 @@ void DeviceSet::resetAll() {
 
 void DeviceSet::setAdpcmDirectory(const AdpcmVoiceFile* directory) {
     for (auto& d : devices_) d->setAdpcmDirectory(directory);
+}
+
+void DeviceSet::setAdpcmASamples(const AdpcmASample* samples) {
+    for (auto& d : devices_) d->setAdpcmASamples(samples);
 }
 
 } // namespace y8960

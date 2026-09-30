@@ -37,6 +37,7 @@ constexpr float    kPlaylistWidth = 300.0f;
 
 const char* const kDeviceNames[y8960::kDeviceCount] = {
     "SSGS", "OPLLEX 1", "OPLLEX 2", "OPL2EX 1", "OPL2EX 2", "DCSG 1", "DCSG 2", "SCC",
+    "OPL3", "OPM", "OPNA", "OPNB",
 };
 
 const char* const kTickNames[] = {"VDP 60Hz", "VDP 50Hz", "MSX-TIMER 100Hz", "MSX-TIMER 200Hz"};
@@ -291,11 +292,13 @@ void drawTracks(const App& app) {
         ImGui::TableNextColumn(); ImGui::Text("%d", i);
         ImGui::TableNextColumn(); ImGui::TextUnformatted(kDeviceNames[static_cast<int>(t.device)]);
         ImGui::TableNextColumn();
-        if (t.channel == y8960::kChannelRhythm)      ImGui::TextUnformatted("rhythm");
-        else if (t.channel == y8960::kChannelAdpcm &&
-                 (t.device == y8960::Device::OPL2EX1 || t.device == y8960::Device::OPL2EX2))
+        if (y8960::isRhythmChannel(t.device, t.channel)) {
+            ImGui::TextUnformatted(t.device == y8960::Device::OPNB ? "ADPCM-A" : "rhythm");
+        } else if (y8960::isAdpcmChannel(t.device, t.channel)) {
             ImGui::TextUnformatted("ADPCM");
-        else ImGui::Text("%u", t.channel);
+        } else {
+            ImGui::Text("%u", t.channel);
+        }
         ImGui::TableNextColumn(); ImGui::Text("%zu", t.events.size());
     }
     ImGui::EndTable();

@@ -1,5 +1,6 @@
 #pragma once
-// SSGS・DCSG・SCC のソフトウェアエンベロープ。Y8960BasicExtension の src/dev/env.asm の写し。
+// SSGS・DCSG・SCC と、OPNA・OPNB の SSG のソフトウェアエンベロープ。
+// Y8960BasicExtension の src/dev/env.asm の写し。
 //
 // 状態はトラックではなくチャンネルに付く。キーオフの後のリリースは、キーを切った
 // トラックやシーケンスが止まっても鳴り続けるため。ドライバはキーオン・キーオフ・
@@ -69,7 +70,7 @@ private:
         uint8_t ar = 0, dr = 0, sl = 0, rr = 0;
     };
 
-    static constexpr int kChannels = 6 + 4 + 4 + 5;
+    static constexpr int kChannels = 6 + 4 + 4 + 5 + 3 + 3;
 
     static int index(Device device, uint8_t ch);
     // 次の段までのコマを数え始め、1段の変化を返す（ENVRATE）。

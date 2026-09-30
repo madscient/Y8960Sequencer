@@ -1,5 +1,7 @@
 #include "chips.h"
 
+#include "pitch.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -10,32 +12,44 @@ namespace {
 // Y8960 の各ブロックのクロックは MSX 標準と同じ（Y8960BasicExtension の
 // doc/hardware.md「搭載音源」）。SSGS は 1.7897725MHz だが、EPSGemuEngine の SSGS は
 // 5.12MHz 未満のマスタークロックを 1/2 して SSG 部に使うので、3.579545MHz を渡す。
+// デバイス 8-11 のクロックは Y8SQ 形式が決めていないので、各チップの標準のもの
+// （pitch.h）。音の高さの計算も同じ値を使う。
 constexpr uint32_t kClockMsx = 3579545;
 
-enum Library { kY8960emu = 0, kEpsg = 1, kDsa = 2 };
+enum Library { kY8960emu = 0, kEpsg = 1, kDsa = 2, kYmfm = 3 };
 
 struct Spec {
     Device      device;
     Library     library;
     const char* chip;
+    uint32_t    clock;
 };
 
+// OPNB は YM2610B として作る。形式は OPNB と OPNB-B を区別せず、FM を6チャンネル
+// 持つのは OPNB-B のほう（bytecode.md「デバイス番号とチャンネル番号」）。
 constexpr Spec kSpecs[kDeviceCount] = {
-    {Device::SSGS,    kEpsg,     "SSGS"},
-    {Device::OPLLEX1, kY8960emu, "OPLLEX"},
-    {Device::OPLLEX2, kY8960emu, "OPLLEX"},
-    {Device::OPL2EX1, kY8960emu, "OPL2EX"},
-    {Device::OPL2EX2, kY8960emu, "OPL2EX"},
-    {Device::DCSG1,   kDsa,      "DCSG"},
-    {Device::DCSG2,   kDsa,      "DCSG"},
-    {Device::SCC,     kDsa,      "SCC"},
+    {Device::SSGS,    kEpsg,     "SSGS",   kClockMsx},
+    {Device::OPLLEX1, kY8960emu, "OPLLEX", kClockMsx},
+    {Device::OPLLEX2, kY8960emu, "OPLLEX", kClockMsx},
+    {Device::OPL2EX1, kY8960emu, "OPL2EX", kClockMsx},
+    {Device::OPL2EX2, kY8960emu, "OPL2EX", kClockMsx},
+    {Device::DCSG1,   kDsa,      "DCSG",   kClockMsx},
+    {Device::DCSG2,   kDsa,      "DCSG",   kClockMsx},
+    {Device::SCC,     kDsa,      "SCC",    kClockMsx},
+    {Device::OPL3,    kYmfm,     "OPL3",   kClockOpl3},
+    {Device::OPM,     kYmfm,     "OPM",    kClockOpm},
+    {Device::OPNA,    kYmfm,     "OPNA",   kClockOpna},
+    {Device::OPNB,    kYmfm,     "OPNBB",  kClockOpnb},
 };
+
+// ADPCM-B を持ち、ボイスファイルのメモリを見るもの。
+constexpr Device kAdpcmBChips[] = {Device::OPL2EX1, Device::OPL2EX2, Device::OPNA, Device::OPNB};
 
 } // namespace
 
-const std::array<const char*, 3>& Y8960Chips::libraryBaseNames() {
-    static const std::array<const char*, 3> names = {
-        "Y8960emuEngine", "EPSGemuEngine", "DSAemuEngine",
+const std::array<const char*, 4>& Y8960Chips::libraryBaseNames() {
+    static const std::array<const char*, 4> names = {
+        "Y8960emuEngine", "EPSGemuEngine", "DSAemuEngine", "YMFMEngine",
     };
     return names;
 }
@@ -55,16 +69,16 @@ bool Y8960Chips::open(const std::filesystem::path& libraryDir, uint32_t sampleRa
         const size_t index = static_cast<size_t>(s.device);
         FmEngine& engine = engines_[index];
         if (!engine.create(libraries_[static_cast<size_t>(s.library)], sampleRate, error)) return false;
-        if (!engine.addChip(s.chip, kClockMsx, chipIds_[index], error)) return false;
+        if (!engine.addChip(s.chip, s.clock, chipIds_[index], error)) return false;
         gains_[index].store(1.0f, std::memory_order_relaxed);
         levels_[index].store(0.0f, std::memory_order_relaxed);
     }
 
-    // 2回路が同じバッファを指すことで、共有メモリになる。
+    // どれも同じバッファを指すことで、共有メモリになる。
     adpcm_.assign(kAdpcmMemorySize, 0);
-    for (Device d : {Device::OPL2EX1, Device::OPL2EX2}) {
+    for (Device d : kAdpcmBChips) {
         const size_t index = static_cast<size_t>(d);
-        if (!engines_[index].setMemory(chipIds_[index], adpcm_.data(), kAdpcmMemorySize)) {
+        if (!engines_[index].setMemory(chipIds_[index], kFmMemAdpcmB, adpcm_.data(), kAdpcmMemorySize)) {
             error = "cannot set the ADPCM memory";
             return false;
         }
@@ -72,9 +86,24 @@ bool Y8960Chips::open(const std::filesystem::path& libraryDir, uint32_t sampleRa
     return true;
 }
 
-void Y8960Chips::write(Device chip, uint8_t reg, uint8_t value) {
+namespace {
+
+// ADPCM-A のキーオンのレジスタ（bit7 が 0 ならキーオン）。OPNA はリズムがこれで鳴る。
+bool isAdpcmAKeyOn(Device chip, uint8_t reg, uint8_t value, uint8_t port) {
+    if (value & 0x80) return false;
+    return (chip == Device::OPNA && port == 0 && reg == 0x10) ||
+           (chip == Device::OPNB && port == 1 && reg == 0x00);
+}
+
+} // namespace
+
+void Y8960Chips::write(Device chip, uint8_t reg, uint8_t value, uint8_t port) {
+    // ADPCM-A のサンプル（OPNA は内蔵 ROM、OPNB はサンプル ROM）を、このプレイヤーは
+    // エミュレータに渡せない。中身が無いと ymfm は 0 のバイト列を復号して大きな雑音を
+    // 出すので、キーオンを捨てて黙らせる。
+    if (isAdpcmAKeyOn(chip, reg, value, port)) return;
     const size_t index = static_cast<size_t>(chip);
-    engines_[index].write(chipIds_[index], reg, value);
+    engines_[index].write(chipIds_[index], reg, value, port);
 }
 
 void Y8960Chips::loadAdpcmMemory(const std::vector<uint8_t>& image) {

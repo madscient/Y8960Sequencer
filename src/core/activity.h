@@ -13,12 +13,11 @@
 
 namespace y8960 {
 
-// 0-9 がチャンネル、10-14 がリズムの5つの楽器。
-constexpr int kActivitySlots = 15;
-constexpr uint8_t kRhythmSlotFirst = 10;
-
-// リズムの楽器の並び（bytecode.md のビットと同じ順）。
-enum class RhythmInstrument : uint8_t { BassDrum = 0, Snare, Tom, Cymbal, HiHat };
+// 0-24 がチャンネル、25-30 がリズムの楽器。リズムの楽器の並びは、OPL 系は
+// BD・SD・TOM・CYM・HH（ビットの上から）、OPNA と OPNB はビットの下から。
+constexpr uint8_t kRhythmSlotFirst = kMaxChannels;
+constexpr uint8_t kRhythmSlots     = 6;
+constexpr int kActivitySlots = kRhythmSlotFirst + kRhythmSlots;
 
 class ChannelActivity {
 public:

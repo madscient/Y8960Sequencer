@@ -23,6 +23,7 @@ uint8_t rateByte(uint8_t value) {
 }
 
 // チャンネルの並びは ENVMAP と同じ。tick() が書き直させる順もこれになる。
+// OPNA・OPNB の SSG は ROM に無く、後ろに足した。
 struct ChannelMap {
     Device  device;
     uint8_t channel;
@@ -33,16 +34,21 @@ constexpr ChannelMap kMap[] = {
     {Device::DCSG1, 0}, {Device::DCSG1, 1}, {Device::DCSG1, 2}, {Device::DCSG1, 3},
     {Device::DCSG2, 0}, {Device::DCSG2, 1}, {Device::DCSG2, 2}, {Device::DCSG2, 3},
     {Device::SCC, 0},   {Device::SCC, 1},   {Device::SCC, 2},   {Device::SCC, 3}, {Device::SCC, 4},
+    {Device::OPNA, 6},  {Device::OPNA, 7},  {Device::OPNA, 8},
+    {Device::OPNB, 6},  {Device::OPNB, 7},  {Device::OPNB, 8},
 };
 
 } // namespace
 
 int SoftEnvelope::index(Device device, uint8_t ch) {
+    static_assert(sizeof kMap / sizeof kMap[0] == kChannels, "kMap and kChannels disagree");
     switch (device) {
     case Device::SSGS:  return ch < 6 ? ch : -1;
     case Device::DCSG1: return ch < 4 ? 6 + ch : -1;
     case Device::DCSG2: return ch < 4 ? 10 + ch : -1;
     case Device::SCC:   return ch < 5 ? 14 + ch : -1;
+    case Device::OPNA:  return (ch >= kOpnSsgFirst && ch < kOpnSsgFirst + 3) ? 19 + ch - kOpnSsgFirst : -1;
+    case Device::OPNB:  return (ch >= kOpnSsgFirst && ch < kOpnSsgFirst + 3) ? 22 + ch - kOpnSsgFirst : -1;
     default:            return -1;
     }
 }

@@ -16,39 +16,49 @@ struct Write {
     y8960::Device chip = y8960::Device::SSGS;
     uint8_t       reg  = 0;
     uint8_t       value = 0;
+    uint8_t       port = 0;
 };
 
 class RecordingBus final : public y8960::ChipBus {
 public:
-    void write(y8960::Device chip, uint8_t reg, uint8_t value) override {
-        writes.push_back({tick, chip, reg, value});
+    void write(y8960::Device chip, uint8_t reg, uint8_t value, uint8_t port) override {
+        writes.push_back({tick, chip, reg, value, port});
     }
 
     // 指定のレジスタに書かれた値を、書かれた順に返す。
-    std::vector<uint8_t> values(y8960::Device chip, uint8_t reg) const {
+    std::vector<uint8_t> values(y8960::Device chip, uint8_t reg, uint8_t port = 0) const {
         std::vector<uint8_t> out;
         for (const Write& w : writes) {
-            if (w.chip == chip && w.reg == reg) out.push_back(w.value);
+            if (w.chip == chip && w.reg == reg && w.port == port) out.push_back(w.value);
         }
         return out;
     }
 
     // 指定の値が最初に書かれた tick。after より後ろだけを見る。無ければ -1。
-    int firstTick(y8960::Device chip, uint8_t reg, uint8_t value, int after = -1) const {
+    int firstTick(y8960::Device chip, uint8_t reg, uint8_t value, int after = -1, uint8_t port = 0) const {
         for (const Write& w : writes) {
             if (w.tick <= after) continue;
-            if (w.chip == chip && w.reg == reg && w.value == value) return w.tick;
+            if (w.chip == chip && w.reg == reg && w.value == value && w.port == port) return w.tick;
         }
         return -1;
     }
 
     // 指定の値が書かれた回数。
-    int count(y8960::Device chip, uint8_t reg, uint8_t value) const {
+    int count(y8960::Device chip, uint8_t reg, uint8_t value, uint8_t port = 0) const {
         int n = 0;
         for (const Write& w : writes) {
-            if (w.chip == chip && w.reg == reg && w.value == value) ++n;
+            if (w.chip == chip && w.reg == reg && w.value == value && w.port == port) ++n;
         }
         return n;
+    }
+
+    // 最後に書かれた値。書かれていなければ -1。
+    int last(y8960::Device chip, uint8_t reg, uint8_t port = 0) const {
+        int v = -1;
+        for (const Write& w : writes) {
+            if (w.chip == chip && w.reg == reg && w.port == port) v = w.value;
+        }
+        return v;
     }
 
     int tick = 0;

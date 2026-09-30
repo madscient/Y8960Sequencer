@@ -1,5 +1,7 @@
 #include "pitch.h"
 
+#include <cmath>
+
 namespace y8960 {
 
 namespace {
@@ -94,6 +96,53 @@ DivPitch divPitch(Device device, uint8_t note, int16_t bendSteps) {
         out.divisor = static_cast<uint16_t>(v);
     }
     return out;
+}
+
+double noteFrequency(uint8_t note, int16_t bendSteps) {
+    constexpr int kA4 = 57;   // O4 A。音符番号は O0 C から数える
+    const double semis = (static_cast<int>(note) - kA4) + bendSteps / double(kFreqSemitone);
+    return 440.0 * std::pow(2.0, semis / 12.0);
+}
+
+// F-Number が 11bit に収まるいちばん小さいブロックを選ぶ ―― 細かさがいちばん大きい。
+OpnPitch opnPitch(uint32_t clock, uint8_t note, int16_t bendSteps) {
+    constexpr double kMax = 2047.0;
+    const double fs = clock / 144.0;
+    double fnum = noteFrequency(note, bendSteps) * (1 << 21) / fs;
+    OpnPitch out;
+    while (std::lround(fnum) > kMax && out.block < 7) {
+        fnum /= 2.0;
+        ++out.block;
+    }
+    const long v = std::lround(fnum);
+    out.fnum = static_cast<uint16_t>(v > kMax ? kMax : v);
+    return out;
+}
+
+// KC のノートコードは C# から始まり、C で終わる。3・7・11・15 は使わない。
+OpmPitch opmPitch(uint8_t note, int16_t bendSteps) {
+    static constexpr uint8_t kCode[12] = {0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14};
+    // C# を 0 にした 1/64 半音の歩数。オクターブ 0 の C# が O0 C# にあたる
+    // （3.579545MHz で KC 4Ah・KF 0 が O4 A の 440Hz）。
+    int steps = (static_cast<int>(note) - 1) * kFreqSemitone + bendSteps;
+    OpmPitch out;
+    if (steps < 0) return out;                        // 下端
+    int octave = steps / kFreqSteps;
+    if (octave > 7) {
+        out.kc = static_cast<uint8_t>((7 << 4) | kCode[11]);
+        out.kf = kFreqSemitone - 1;
+        return out;
+    }
+    steps %= kFreqSteps;
+    out.kc = static_cast<uint8_t>((octave << 4) | kCode[steps / kFreqSemitone]);
+    out.kf = static_cast<uint8_t>(steps % kFreqSemitone);
+    return out;
+}
+
+// SSG の入力はマスタークロックの 1/4 で、トーンはその 1/16 を分周する。
+uint16_t opnSsgPeriod(uint32_t clock, uint8_t note, int16_t bendSteps) {
+    const long v = std::lround(clock / 64.0 / noteFrequency(note, bendSteps));
+    return static_cast<uint16_t>(v < 1 ? 1 : (v > kSsgDivMax ? kSsgDivMax : v));
 }
 
 } // namespace y8960

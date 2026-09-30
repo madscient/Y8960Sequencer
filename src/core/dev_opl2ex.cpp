@@ -91,16 +91,16 @@ uint16_t mulFraction(uint16_t base, uint8_t fraction) {
     return acc;
 }
 
-// 音色レコードの中の位置。
-constexpr int kRecTrans = 8;    // 2バイト、8.8 の半音
-constexpr int kRecFb    = 10;
-constexpr int kRecMod   = 16;
-constexpr int kRecCar   = 24;
-constexpr int kOpMult   = 0;
-constexpr int kOpTl     = 1;
-constexpr int kOpAr     = 2;
-constexpr int kOpSl     = 3;
-constexpr int kOpWave   = 5;
+// 音色レコード（チャンク 01、seqdef.inc の VP_*／VO_*）の中の位置。
+constexpr int kRecFb    = 0;
+constexpr int kRecTrans = 1;    // 符号付きの半音
+constexpr int kRecMod   = 2;
+constexpr int kRecCar   = 7;
+constexpr int kOpTl     = 0;
+constexpr int kOpAr     = 1;
+constexpr int kOpSl     = 2;
+constexpr int kOpMult   = 3;
+constexpr int kOpWave   = 4;
 
 class Opl2exDevice final : public SoundDevice {
 public:
@@ -212,8 +212,8 @@ public:
         write(static_cast<uint8_t>(kRegFnumH + ch), fnh_[ch]);
     }
 
-    // 旋律チャンネルの 0-63 は音色表の音色で、こちらは表を持たないので捨てる
-    // （doc/rom-feedback.md の B1）。ADPCM チャンネルではボイスファイル番号。
+    // チップが内蔵の音色を持たないので、旋律チャンネルでは引数によらず捨てる
+    // （bytecode.md の `82`）。ADPCM チャンネルではボイスファイル番号。
     void setVoice(uint8_t ch, uint8_t number) override {
         if (ch != kChannelAdpcm || number >= kAdpcmFiles) return;
         file_ = number;
@@ -241,12 +241,14 @@ public:
         write(kRegRhythm, rhythm_.mode);
     }
 
-    bool regRead(uint8_t reg, uint8_t& value) override {
+    bool regRead(uint8_t port, uint8_t reg, uint8_t& value) override {
+        if (port != 0) return false;
         value = shadow_[reg];
         return true;
     }
 
-    bool regWrite(uint8_t reg, uint8_t value) override {
+    bool regWrite(uint8_t port, uint8_t reg, uint8_t value) override {
+        if (port != 0) return false;
         write(reg, value);
         if (reg >= kRegFnumH && reg < kRegFnumH + kChannels) fnh_[reg - kRegFnumH] = value;
         else if (reg == kRegRhythm) rhythm_.mode = value;
@@ -278,10 +280,7 @@ private:
         writeOperator(static_cast<uint8_t>(kSlot[ch]), r + kRecMod);
         writeOperator(static_cast<uint8_t>(kSlot[ch] + kCarrier), r + kRecCar);
         voiceTl_[ch] = r[kRecCar + kOpTl];
-        // トランスポーズは 8.8 の符号付き半音。近いほうの整数半音を取る。
-        int8_t whole = static_cast<int8_t>(r[kRecTrans + 1]);
-        if (r[kRecTrans] >= 0x80) whole = static_cast<int8_t>(whole + 1);
-        transpose_[ch] = whole;
+        transpose_[ch] = static_cast<int8_t>(r[kRecTrans]);
         writeLevel(ch);
     }
 

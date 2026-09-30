@@ -1,7 +1,7 @@
 #pragma once
 // FmEngineApi 準拠の共有ライブラリを実行時に読み込む。
 //
-// Y8960emu・EPSGemuEngine・DSAemuEngine はどれも同じ名前の関数を公開するので、
+// Y8960emu・EPSGemuEngine・DSAemuEngine・YMEngine はどれも同じ名前の関数を公開するので、
 // ヘッダを取り込んでリンクすることはできない。関数の形だけをここに写し、
 // ライブラリごとに関数ポインタで呼ぶ。形の出典は各リポジトリの src/FmEngineApi.h。
 
@@ -24,6 +24,7 @@ enum FmEngineResult : int32_t {
 };
 
 enum FmEngineMemory : int32_t {
+    kFmMemAdpcmA = 1,
     kFmMemAdpcmB = 2,
 };
 
@@ -56,9 +57,12 @@ public:
 
     bool create(const FmEngineLibrary& lib, uint32_t sampleRate, std::string& error);
     bool addChip(const char* name, uint32_t clock, uint32_t& outId, std::string& error);
-    void write(uint32_t chipId, uint8_t reg, uint8_t value) { lib_->write(handle_, chipId, reg, value, 0); }
+    // port はアドレス端子 A1。2組のレジスタを持つチップの2組目が 1。
+    void write(uint32_t chipId, uint8_t reg, uint8_t value, uint8_t port) {
+        lib_->write(handle_, chipId, reg, value, port);
+    }
     void setGain(uint32_t chipId, float l, float r) { lib_->setGain(handle_, chipId, l, r); }
-    bool setMemory(uint32_t chipId, const uint8_t* data, uint32_t size);
+    bool setMemory(uint32_t chipId, FmEngineMemory type, const uint8_t* data, uint32_t size);
     void generate(float* l, float* r, uint32_t n) { lib_->generate(handle_, l, r, n); }
 
 private:

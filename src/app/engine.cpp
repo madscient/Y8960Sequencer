@@ -67,6 +67,7 @@ void PlaybackEngine::load(const SequenceBlock& block, const PcmFile* pcm) {
     directory_ = resolveAdpcmDirectory(block_, pcm);
     devices_->resetAll();
     devices_->setAdpcmDirectory(directory_.data());
+    devices_->setAdpcmASamples(block_.adpcmA.data());
     if (pcm) chips_.loadAdpcmMemory(pcm->dump);
     rebuildPlayer();
     sequencer_->load(0, block_);

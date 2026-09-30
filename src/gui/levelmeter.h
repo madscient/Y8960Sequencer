@@ -21,14 +21,14 @@ constexpr float kGainDbMin = -40.0f;
 constexpr float kGainDbMax = 6.0f;
 float gainFromDb(float db);
 
-// 画面で選んだミュート。チップ単位と、チャンネル単位（0-10。リズムは 10 の1本）。
+// 画面で選んだミュート。チップ単位と、チャンネル単位（リズムはリズムチャンネルの1本）。
 struct MuteState {
     std::array<bool, kDeviceCount> chip{};
-    std::array<std::array<bool, kChannelRhythm + 1>, kDeviceCount> channel{};
+    std::array<std::array<bool, kMaxChannels>, kDeviceCount> channel{};
 
     bool muted(Device device, uint8_t ch) const {
         const size_t d = static_cast<size_t>(device);
-        return chip[d] || (ch <= kChannelRhythm && channel[d][ch]);
+        return chip[d] || (ch < kMaxChannels && channel[d][ch]);
     }
     // 黙らせるトラックのビット。
     uint16_t trackMask(const SequenceBlock& block) const;
@@ -37,7 +37,7 @@ struct MuteState {
 class LevelMeter {
 public:
     // 既定では、読み込んだシーケンスが使うチャンネルだけを出す。showAll を立てると
-    // 8ブロックの全チャンネルを出す。
+    // 全デバイスの全チャンネルを出す。
     void update(const PlaybackEngine& engine, const SequenceBlock& block, bool haveBlock,
                 bool showAll, float now);
     // 帯の見出しのチェックボックスでチップを、バーのクリックでチャンネルを
