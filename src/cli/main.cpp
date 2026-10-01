@@ -282,6 +282,8 @@ int main(int argc, char** argv) {
     std::printf("%s: version %u, %d tracks, %d voice files\n",
                 opt.sequence.u8string().c_str(), static_cast<unsigned>(block.version),
                 assigned, voiceFiles);
+    if (!block.title.empty())  std::printf("  title:  %s\n", block.title.c_str());
+    if (!block.author.empty()) std::printf("  author: %s\n", block.author.c_str());
 
     if (opt.wav) return exportWav(opt, block, havePcm ? &pcm : nullptr);
 

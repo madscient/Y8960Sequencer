@@ -4,23 +4,8 @@ namespace y8960 {
 
 namespace {
 
-constexpr uint8_t kRateMax  = 32;
 constexpr uint8_t kLevelMax = 15;
 constexpr uint8_t kVMask    = 0x0F;
-
-// AR・DR・RR の 0-32 を、コマ（bit7-4）と変化（bit3-0）に。MuSICA のエディタが
-// 受け付ける値とコンパイラが書くバイトで、env.asm の ENVRTAB と同じもの。
-constexpr uint8_t kRateTable[kRateMax + 1] = {
-    0xF1, 0xC1, 0xA1, 0x91, 0x81, 0x71, 0x61, 0x51,
-    0x41, 0x72, 0x31, 0x52, 0x21, 0x53, 0x32, 0x43,
-    0x11, 0x34, 0x23, 0x35, 0x12, 0x25, 0x13, 0x27,
-    0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1C,
-    0x1F,
-};
-
-uint8_t rateByte(uint8_t value) {
-    return kRateTable[value > kRateMax ? kRateMax : value];
-}
 
 // チャンネルの並びは ENVMAP と同じ。tick() が書き直させる順もこれになる。
 // OPNA・OPNB の SSG は ROM に無く、後ろに足した。
@@ -133,19 +118,24 @@ void SoftEnvelope::select(Device device, uint8_t ch, uint8_t number, const Envel
     Channel& c = channels_[static_cast<size_t>(i)];
     EnvelopeSink* sink = sinks_[static_cast<size_t>(device)];
 
+    // 0 で外すとき、キーが離れていれば先にドライバのキーオフで消してから V の音量を
+    // 書く（ENVSOFF）。逆だと、2つの書き込みのあいだ V の音量で鳴る。
     if (number == 0) {
         if (c.phase == Phase::None) return;
         c.phase = Phase::None;
-        refresh(i);
         if (!(c.vol & kKey) && sink) sink->envReleased(ch);
+        refresh(i);
         return;
     }
     if (number >= kEnvelopeCount) return;   // コンパイラは通さない
 
-    c.ar = rateByte(record.ar);
-    c.dr = rateByte(record.dr);
+    // レコードはコマと変化の生のバイトを持つ（チャンク 04）。範囲は形式が書き手に
+    // 課すもので、ROM も検査しない。SL だけは、15 を超えるとドライバへ渡すレベルが
+    // 4 ビットを越えるので止める。
+    c.ar = record.ar;
+    c.dr = record.dr;
     c.sl = record.sl > kLevelMax ? kLevelMax : record.sl;
-    c.rr = rateByte(record.rr);
+    c.rr = record.rr;
 
     if (c.phase == Phase::None) {
         if (sink) c.vol = static_cast<uint8_t>(sink->envSync(ch) & (kKey | kVMask));

@@ -1,6 +1,13 @@
 #include "dev_internal.h"
 
+#include <cmath>
+
 namespace y8960 {
+
+uint8_t adpcmLevel(uint8_t loudness) {
+    const double gain = std::pow(10.0, -0.75 * (127 - (loudness & 127)) / 20.0);
+    return static_cast<uint8_t>(std::lround(255.0 * gain));
+}
 
 DeviceSet::DeviceSet(ChipBus& bus) {
     devices_[static_cast<size_t>(Device::SSGS)]    = makeSsgsDevice(bus, envelope_);

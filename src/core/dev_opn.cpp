@@ -42,7 +42,6 @@ constexpr uint8_t kPanL       = 0x80;  // ymfm の ch_output_0
 constexpr uint8_t kPanR       = 0x40;
 constexpr uint8_t kPanLR      = kPanL | kPanR;
 constexpr uint8_t kTlMax      = 127;
-constexpr uint8_t kLoudMax    = 127;
 
 // レコードのオペレータ（M1・C1・M2・C2）が置かれるレジスタの位置。スロット 1・2・3・4 は
 // レジスタの上で +0・+8・+4・+12。
@@ -66,6 +65,8 @@ constexpr uint8_t kRegAEndH    = 0x28;
 constexpr uint8_t kDump        = 0x80;
 constexpr uint8_t kTotalMax    = 0x3F;
 constexpr uint8_t kLevelMax    = 31;
+constexpr uint8_t kLevelNormal = 24;     // 演奏を始めるときの通常音量とアクセント音量
+constexpr uint8_t kLevelAccent = 31;
 constexpr uint8_t kRhythmAll   = 0x3F;
 constexpr int     kInstruments = 6;
 
@@ -143,6 +144,7 @@ public:
         }
         rhythmPan_ = kPanLR;
         rhythm_ = RhythmState{};
+        rhythm_.toDefaults(kLevelNormal, kLevelAccent);
         bound_.fill(kUnbound);
 
         writeB(kBCtl1, kBReset);
@@ -163,7 +165,7 @@ public:
     // 戻り、ADPCM-A の楽器はどのサンプルにも結び付いていない状態になる（bytecode.md）。
     void setRhythmMode(bool on, const VoiceRecord* rhythmVoices) override {
         (void)on; (void)rhythmVoices;
-        rhythm_.toDefaults();
+        rhythm_.toDefaults(kLevelNormal, kLevelAccent);
         bound_.fill(kUnbound);
     }
 
@@ -202,7 +204,7 @@ public:
             rhythm_.scale = loudness;         // シーケンスの音量ぶんだけが来る
             writeRhythmLevels(rhythm_.accents);
         } else if (ch == kOpnAdpcmB) {
-            writeB(kBLevel, static_cast<uint8_t>(loudness * 2));
+            writeB(kBLevel, adpcmLevel(loudness));
         } else {
             ssg_->setVolume(ch, loudness);
         }
@@ -267,14 +269,15 @@ public:
         // FX はチャンネル 2 だけのもの。27h の bit5-0 はタイマーの制御なので残す。
         if (ch == kFxChannel) {
             c.fx = (r[kFmAlg] & kFmFx) != 0;
-            write(0, kRegMode, static_cast<uint8_t>((shadow_[0][kRegMode] & 0x0F) | (c.fx ? kModeFx : 0)));
+            write(0, kRegMode, static_cast<uint8_t>((shadow_[0][kRegMode] & 0x3F) | (c.fx ? kModeFx : 0)));
         }
         writeLevels(ch);
     }
 
-    // チャンネル 2 以外と、FX が 0 の音色では捨てる（bytecode.md の `E9`）。
+    // チャンネル 2 以外では捨てる。差は FX の無い音色のあいだも持ち、setPitch が
+    // FX の音色のあいだだけ使う（bytecode.md の `E9`）。
     void setSubPitch(uint8_t ch, uint8_t sub, int16_t steps) override {
-        if (ch != kFxChannel || !channels_[ch].fx || sub < 1 || sub > kSubs) return;
+        if (ch != kFxChannel || sub < 1 || sub > kSubs) return;
         subs_[sub - 1] = steps;
     }
 
@@ -294,6 +297,12 @@ public:
     }
 
     void rhythmVolume(uint8_t target, uint8_t level) override { rhythm_.setLevel(target, level); }
+
+    // OPNA は 11h、OPNB は ADPCM-A の 01h。0-63 をそのまま書く。
+    void rhythmTotal(uint8_t level) override {
+        if (isOpna()) write(0, kRegRhyTotal, static_cast<uint8_t>(level & kTotalMax));
+        else          write(1, kRegATotal, static_cast<uint8_t>(level & kTotalMax));
+    }
 
     // OPNB では、サンプルに結び付いていない楽器は叩かない。
     void rhythmStrike(uint8_t instruments, uint8_t accents) override {
@@ -387,7 +396,7 @@ private:
 
     void writeLevels(uint8_t ch) {
         const Channel& c = channels_[ch];
-        const uint8_t take = static_cast<uint8_t>((kLoudMax - c.volume) >> 1);
+        const uint8_t take = fmAttenuation(c.volume, kTlMax);
         const uint8_t port = portOf(ch);
         for (uint8_t op = 0; op < 4; ++op) {
             if (!((c.carriers >> op) & 1)) continue;
@@ -397,12 +406,14 @@ private:
         }
     }
 
-    // 楽器ごとのレベルは 0-31 で大きいほど大きい音。0-15 から max(31 - (15 - V), 0)。
+    // 楽器ごとのレベルは 0-31 をそのまま書く。チップの1段は 0.75 dB で音量の1と同じ
+    // なので、シーケンスの音量は下げたぶんをそのまま引く。
     void writeRhythmLevels(uint8_t accents) {
         const uint8_t port = isOpna() ? 0 : 1;
         const uint8_t base = isOpna() ? kRegRhyLevel : kRegALevel;
         for (uint8_t i = 0; i < kInstruments; ++i) {
-            const int v = kLevelMax - (RhythmState::kVolMax - rhythm_.level(static_cast<uint8_t>(1u << i), accents));
+            const int raw = rhythm_.raw(static_cast<uint8_t>(1u << i), accents) & kLevelMax;
+            const int v = raw - (127 - rhythm_.scale);
             write(port, static_cast<uint8_t>(base + i),
                   static_cast<uint8_t>(rhythmPan_ | (v < 0 ? 0 : v)));
         }

@@ -93,7 +93,7 @@ public:
             return;
         }
         if (ch >= kChannels) return;
-        const uint8_t att = static_cast<uint8_t>(kVolMin - ((loudness >> 3) & 0x0F));
+        const uint8_t att = static_cast<uint8_t>(kVolMin - volumeStep(loudness));
         insVol_[ch] = static_cast<uint8_t>((insVol_[ch] & 0xF0) | att);
         write(static_cast<uint8_t>(kRegInsVol + ch), insVol_[ch]);
     }

@@ -279,6 +279,8 @@ void tooltip(const char* text) {
 
 void drawTracks(const App& app) {
     if (!app.haveBlock) return;
+    if (!app.block.title.empty())  ImGui::Text("Title:  %s", app.block.title.c_str());
+    if (!app.block.author.empty()) ImGui::Text("Author: %s", app.block.author.c_str());
     if (!ImGui::BeginTable("tracks", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) return;
     ImGui::TableSetupColumn("Track");
     ImGui::TableSetupColumn("Device");

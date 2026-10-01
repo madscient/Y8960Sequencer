@@ -23,6 +23,14 @@ constexpr uint8_t kChunkOpnVoice = 0x40;
 constexpr uint8_t kChunkAdpcmA   = 0x41;
 constexpr uint8_t kChunkFm4op    = 0x42;
 constexpr uint8_t kChunkSkippableFirst = 0x80;
+constexpr uint8_t kChunkMeta     = 0x80;
+
+constexpr uint8_t kMetaPitch  = 0x01;
+constexpr uint8_t kMetaVolume = 0x02;
+constexpr uint8_t kMetaTitle  = 0x03;
+constexpr uint8_t kMetaAuthor = 0x04;
+constexpr uint16_t kPitchMin  = 4300;
+constexpr uint16_t kPitchMax  = 4500;
 
 constexpr size_t kAdpcmChunkSize = 7;
 constexpr size_t kEnvelopeChunkSize = 5;
@@ -58,6 +66,44 @@ std::string hex2(unsigned v) {
 uint8_t fourOpFront(uint8_t ch) {
     const uint8_t i = static_cast<uint8_t>(ch - kOpl3FourOpFirst);
     return static_cast<uint8_t>((i < 3) ? i : 9 + (i - 3));
+}
+
+// 文字列は 20h-7Eh の ASCII だけで書く決まり。ほかのバイトは '?' にして表示を崩さない。
+std::string asciiText(const uint8_t* p, size_t n) {
+    std::string s;
+    for (size_t i = 0; i < n; ++i) s.push_back((p[i] >= 0x20 && p[i] <= 0x7E) ? static_cast<char>(p[i]) : '?');
+    return s;
+}
+
+// メタ情報は使わなくても演奏が成り立つので、壊れていてもブロックは拒まない。
+// 読めたところまでを使い、残りは警告にする。
+void readMeta(const uint8_t* p, size_t len, SequenceBlock& out) {
+    size_t pos = 0;
+    while (pos < len) {
+        if (len - pos < 2 || p[pos + 1] > len - pos - 2) {
+            out.warnings.push_back("meta information is cut short");
+            return;
+        }
+        const uint8_t item = p[pos];
+        const uint8_t n    = p[pos + 1];
+        const uint8_t* v   = p + pos + 2;
+        pos += 2 + n;
+        if (item == kMetaPitch && n == 2) {
+            const uint16_t pitch = readLe16(v);
+            if (pitch >= kPitchMin && pitch <= kPitchMax) out.masterPitch = pitch;
+            else out.warnings.push_back("master pitch " + std::to_string(pitch) + " is out of range");
+        } else if (item == kMetaVolume && n == 1) {
+            if (v[0] <= 127) out.masterVolume = v[0];
+            else out.warnings.push_back("master volume " + std::to_string(v[0]) + " is out of range");
+        } else if (item == kMetaTitle) {
+            out.title = asciiText(v, n);
+        } else if (item == kMetaAuthor) {
+            out.author = asciiText(v, n);
+        } else if (item <= kMetaAuthor) {
+            out.warnings.push_back("meta item " + std::to_string(item) + " has a wrong length");
+        }
+        // 知らない項目番号は飛ばす。
+    }
 }
 
 } // namespace
@@ -332,6 +378,8 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 error = "unknown chunk type " + hex2(type) + " for device " + std::to_string(dev);
                 return false;
             }
+        } else if (type == kChunkMeta) {
+            readMeta(p, len, out);
         } else if (type < kChunkSkippableFirst) {
             error = "unknown chunk type " + hex2(type);
             return false;

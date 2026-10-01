@@ -28,7 +28,6 @@ constexpr uint8_t kPanL      = 0x40;   // ymfm の ch_output_0
 constexpr uint8_t kPanR      = 0x80;
 constexpr uint8_t kPanLR     = kPanL | kPanR;
 constexpr uint8_t kTlMax     = 127;
-constexpr uint8_t kLoudMax   = 127;
 
 // レコードのオペレータは M1・C1・M2・C2 の順。レジスタは M1・M2・C1・C2 の順に 8 ずつ。
 constexpr uint8_t kOpOffset[4] = {0, 16, 8, 24};
@@ -163,7 +162,7 @@ private:
 
     void writeLevels(uint8_t ch) {
         const Channel& c = channels_[ch];
-        const uint8_t take = static_cast<uint8_t>((kLoudMax - c.volume) >> 1);
+        const uint8_t take = fmAttenuation(c.volume, kTlMax);
         for (uint8_t op = 0; op < 4; ++op) {
             if (!((c.carriers >> op) & 1)) continue;
             const int level = c.tl[op] + take;

@@ -96,8 +96,8 @@ struct AdpcmASample {
     uint16_t pages     = 0;
 };
 
-// チャンク `04`。ソフトウェアエンベロープ1つ。値の範囲は検査しない ―― ROM は範囲を
-// 超えたレートを 32、レベルを 15 として鳴らす（bytecode.md「チャンク」）。
+// チャンク `04`。ソフトウェアエンベロープ1つ。AR・DR・RR は bit7-4 がコマ数、bit3-0 が
+// 変化の生のバイトで、SL は 0-15（bytecode.md「チャンク」）。値の範囲は検査しない。
 struct EnvelopeRecord {
     bool    present = false;
     uint8_t ar = 0;
@@ -120,6 +120,12 @@ struct SequenceBlock {
     std::vector<std::string>                  warnings;
     // デバイスごとのリズムモード。ブロックは持たないので、割り当てから推定する。
     std::array<bool, kDeviceCount>            rhythmMode{};
+
+    // チャンク `80`（メタ情報）。項目が無ければ既定の値。
+    uint16_t    masterPitch  = 4400;   // A4 の周波数、0.1Hz 単位
+    uint8_t     masterVolume = 127;
+    std::string title;                 // 20h-7Eh の ASCII だけ
+    std::string author;
 
     // `85` が名指す集合の索引 index のレコード。無ければ nullptr。
     const VoiceRecord* seqVoice(Device device, uint8_t index) const;

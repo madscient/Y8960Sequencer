@@ -168,7 +168,7 @@ int main() {
         const Device d = Device::OPL2EX1;
         CHECK(r.bus.last(d, 0xC1) == 0x0B);
         CHECK(r.bus.last(d, 0x21) == 0xE5);
-        CHECK(r.bus.last(d, 0x41) == 0x9A);
+        CHECK(r.bus.last(d, 0x41) == (0x80 | (0x1A + 28)));   // 接続が加算なのでモジュレータにも
         CHECK(r.bus.last(d, 0x61) == 0xF3);
         CHECK(r.bus.last(d, 0x81) == 0x24);
         CHECK(r.bus.last(d, 0xE1) == 0x01);
@@ -195,7 +195,7 @@ int main() {
     {
         Rig r;
         SequenceBlock b;
-        addTrack(b, 0, Device::SCC, 0, {0xB3, 0, 0x81, 103, 0x00, 24});
+        addTrack(b, 0, Device::SCC, 0, {0xB3, 0, 0x81, 115, 0x00, 24});   // V12
         r.play(b, 3 * kEighth, 2);
         // V8 を表で書く（02h）のは、2つの周の頭で1回ずつ。周の頭で表に戻らなければ
         // 2周目は 08h になる。
@@ -344,34 +344,39 @@ int main() {
         CHECK(writtenBefore(r.bus, d, 1, 0xA4, 0xA0));
     }
 
-    // OPNA の効果音モード。`E9` の差を親の高さに足してサブチャンネルへ書く。差は周の頭で 0。
+    // OPNA の効果音モード。`E9` の差（1/64 半音）を親の高さに足してサブチャンネルへ書く。
+    // 差は周の頭で 0。音色より前の `E9` も効く。
     {
         Rig r;
         SequenceBlock b;
         b.deviceVoices[1][0] = opnVoice(kFmFx | 0x07, 0, 0xF0);
-        addTrack(b, 0, Device::OPNA, 2, {0x85, 0, 0xE9, 2, 0x9C, 0xFF, 0xE9, 3, 0xB0, 0x04, 0x00, 24,
-                                         0xE9, 1, 100, 0, 0xE9, 4, 100, 0, 0x00, 24});
+        addTrack(b, 0, Device::OPNA, 2, {0xE9, 2, 0xC0, 0xFF, 0x85, 0, 0xE9, 3, 0x00, 0x03, 0x00, 24,
+                                         0xE9, 1, 64, 0, 0x00, 24});
         r.play(b, 5 * kEighth, 2);
         const Device d = Device::OPNA;
         CHECK((r.bus.last(d, 0x27) & 0xC0) == 0x40);
         const auto low = [](int note) { return static_cast<uint8_t>(opnPitch(kClockOpna, static_cast<uint8_t>(note), 0).fnum & 0xFF); };
         const uint8_t n48 = low(48), n49 = low(49);
         CHECK(r.bus.values(d, 0xA9) == (std::vector<uint8_t>{0, n48, n49, n48, n49}));   // OP1
-        CHECK(r.bus.last(d, 0xAA) == low(47));   // OP2 は -100 セント
-        CHECK(r.bus.last(d, 0xA8) == low(60));   // OP3 は +1200 セント
+        CHECK(r.bus.last(d, 0xAA) == low(47));   // OP2 は -64（1 半音下）
+        CHECK(r.bus.last(d, 0xA8) == low(60));   // OP3 は +768（1 オクターブ上）
         CHECK(r.bus.last(d, 0xA2) == n48);       // 親（OP4）
     }
 
-    // FX の無い音色と、チャンネル 2 以外では `E9` を捨てる。
+    // FX の無い音色のあいだはサブチャンネルを書かないが、差は持っていて、あとで FX の
+    // 音色を選べば効く。チャンネル 2 以外では `E9` を捨てる。FX の無い音色は 27h を
+    // 通常モードに戻す。
     {
         Rig r;
         SequenceBlock b;
         b.deviceVoices[1][0] = opnVoice(0x07, 0, 0xF0);
-        addTrack(b, 0, Device::OPNA, 2, {0x85, 0, 0xE9, 1, 100, 0, 0x00, 24});
-        addTrack(b, 1, Device::OPNA, 1, {0x85, 0, 0xE9, 1, 100, 0, 0x00, 24});
-        r.play(b, 4);
-        CHECK(r.bus.values(Device::OPNA, 0xA9) == (std::vector<uint8_t>{0}));   // リセットだけ
-        CHECK((r.bus.last(Device::OPNA, 0x27) & 0xC0) == 0);
+        b.deviceVoices[1][1] = opnVoice(kFmFx | 0x07, 0, 0xF0);
+        addTrack(b, 0, Device::OPNA, 2, {0x85, 0, 0xE9, 1, 64, 0, 0x00, 24, 0x85, 1, 0x00, 24, 0x85, 0, 0x00, 24});
+        addTrack(b, 1, Device::OPNA, 1, {0x85, 1, 0xE9, 1, 64, 0, 0x00, 24});
+        r.play(b, 2 * kEighth + 4);
+        const auto low = [](int note) { return static_cast<uint8_t>(opnPitch(kClockOpna, static_cast<uint8_t>(note), 0).fnum & 0xFF); };
+        CHECK(r.bus.values(Device::OPNA, 0xA9) == (std::vector<uint8_t>{0, low(49)}));   // FX の音色の1音だけ
+        CHECK(r.bus.values(Device::OPNA, 0x27) == (std::vector<uint8_t>{0, 0x00, 0x40, 0x00}));
     }
 
     // OPNA の SSG（6-8）は SSGS と同じドライバで、分周値はマスタークロック ÷ 64。
@@ -385,23 +390,35 @@ int main() {
         CHECK(r.bus.last(Device::OPNA, 0x08) == 8);
     }
 
-    // OPNA のリズム（9）。6つの楽器のレベルは max(31 - (15 - V), 0) を 18h-1Dh へ。
+    // OPNA のリズム（9）。6つの楽器のレベル 0-31 をそのまま 18h-1Dh へ。`AB` は 11h へ。
     {
         Rig r;
         SequenceBlock b;
-        addTrack(b, 0, Device::OPNA, kOpnRhythm, {0xA9, 10, 0xD8, 0x04, 13, 0xD8, 0x20, 2, 0xAA, 15,
-                                                  0xA8, 0x01, 0xC8, 0x05, 24, 0x87, 0});
+        addTrack(b, 0, Device::OPNA, kOpnRhythm, {0xA9, 20, 0xD8, 0x04, 29, 0xD8, 0x20, 2, 0xAA, 30,
+                                                  0xAB, 40, 0xA8, 0x01, 0xC8, 0x05, 24, 0x87, 0});
         r.play(b, kEighth + 2);
         const Device d = Device::OPNA;
         CHECK(r.bus.last(d, 0x10) == 0x05);
         CHECK(r.bus.values(d, 0x18).size() >= 2);
         const auto bd = r.bus.values(d, 0x18);
-        CHECK(bd[bd.size() - 2] == (0xC0 | 31));   // アクセント 15
-        CHECK(bd.back() == (0x80 | 31));           // 定位を左に
-        CHECK((r.bus.last(d, 0x19) & 0x1F) == 26); // V10
-        CHECK((r.bus.last(d, 0x1A) & 0x1F) == 29); // D8 で 13
-        CHECK((r.bus.last(d, 0x1D) & 0x1F) == 18); // D8 で 2（bit5 は OPNA では使う）
-        CHECK(r.bus.last(d, 0x11) == 0x3F);        // 全体の音量はリセットで最大
+        CHECK(bd[bd.size() - 2] == (0xC0 | 30));   // アクセント
+        CHECK(bd.back() == (0x80 | 30));           // 定位を左に
+        CHECK((r.bus.last(d, 0x19) & 0x1F) == 20); // A9
+        CHECK((r.bus.last(d, 0x1A) & 0x1F) == 29); // D8
+        CHECK((r.bus.last(d, 0x1D) & 0x1F) == 2);  // D8（bit5 は OPNA では使う）
+        CHECK(r.bus.last(d, 0x11) == 40);
+    }
+
+    // 演奏を始めるときの OPNA・OPNB のリズムの音量は、通常 24・アクセント 31。
+    // シーケンスの音量は、1段 0.75 dB のレベルからそのまま引く。
+    {
+        Rig r;
+        SequenceBlock b;
+        b.masterVolume = 120;
+        addTrack(b, 0, Device::OPNA, kOpnRhythm, {0xA8, 0x02, 0xC8, 0x03, 24});
+        r.play(b, 4);
+        CHECK((r.bus.last(Device::OPNA, 0x18) & 0x1F) == 24 - 7);
+        CHECK((r.bus.last(Device::OPNA, 0x19) & 0x1F) == 31 - 7);
     }
 
     // OPNB の ADPCM-A。`D9` で結び付けたサンプルだけを叩く。番号は 0-255 の全域。
@@ -417,7 +434,7 @@ int main() {
         CHECK(r.bus.last(d, 0x21, 1) == 0x13);
         CHECK(r.bus.last(d, 0x29, 1) == 0x01);
         CHECK(r.bus.last(d, 0x00, 1) == 0x03);     // 結び付いていない楽器 2 は叩かない
-        CHECK(r.bus.last(d, 0x08, 1) == (0xC0 | 24));   // 既定の V8
+        CHECK(r.bus.last(d, 0x08, 1) == (0xC0 | 24));   // 既定の通常音量
         CHECK(r.bus.last(d, 0x01, 1) == 0x3F);
     }
 
@@ -443,6 +460,136 @@ int main() {
             CHECK(delta == expect);
             if (a) CHECK(r.bus.last(d, 0x01, 1) == 0xC2);
         }
+    }
+
+    // 音量（1 が 0.75 dB）。期待値は ROM の opl2dev・opllex・psgdev・sccdev・adpcmdev・
+    // volsub が見ている値。
+    {
+        // OPL2EX：接続が加算（C0h 0Dh）の音色の @V96 は、両方のオペレータに 31 を足す。
+        Rig r;
+        SequenceBlock b;
+        VoiceRecord v = packedFm(0);
+        v.data[0] = 0x0D;
+        v.data[2] = 0x06;              // モジュレータの 40h
+        v.data[7] = 0x19;              // キャリアの 40h
+        b.voices[0] = v;
+        addTrack(b, 0, Device::OPL2EX1, 0, {0x85, 0, 0x81, 96, 0x00, 24});
+        r.play(b, 4);
+        CHECK(r.bus.last(Device::OPL2EX1, 0x40) == 0x25);
+        CHECK(r.bus.last(Device::OPL2EX1, 0x43) == 0x38);
+    }
+    {
+        // OPL2EX：`Y` で接続を立てると、次の V からモジュレータにも効く。
+        Rig r;
+        SequenceBlock b;
+        VoiceRecord v = packedFm(0);
+        v.data[0] = 0x0A;
+        v.data[2] = 0x0E;
+        v.data[7] = 0x00;
+        b.voices[0] = v;
+        addTrack(b, 0, Device::OPL2EX1, 1, {0x85, 0, 0xE0, 0xC1, 0x01, 0xFE, 0x81, 96, 0x00, 24});
+        r.play(b, 4);
+        CHECK(r.bus.last(Device::OPL2EX1, 0xC1) == 0x0B);
+        CHECK(r.bus.last(Device::OPL2EX1, 0x41) == 0x2D);
+        CHECK(r.bus.last(Device::OPL2EX1, 0x44) == 0x1F);
+    }
+    {
+        // 4 ビットのチップ：@V99 は段 8（減衰 7）。SCC は段 8 を表で 2 に。
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::OPLLEX1, 0, {0x82, 0x01, 0x81, 99, 0x00, 24});
+        addTrack(b, 1, Device::DCSG1, 0, {0x81, 99, 0x00, 24});
+        addTrack(b, 2, Device::SCC, 0, {0x81, 99, 0x00, 24});
+        addTrack(b, 3, Device::SSGS, 0, {0x81, 96, 0x00, 24});   // 31 下げは 4 で割って 7 段
+        r.play(b, 4);
+        CHECK((r.bus.last(Device::OPLLEX1, 0x30) & 0x0F) == 7);
+        CHECK(r.bus.count(Device::DCSG1, 0, 0x80 | 0x10 | 7) >= 1);
+        CHECK(r.bus.last(Device::SCC, 0x8A) == 2);
+        CHECK(r.bus.last(Device::SSGS, 0x08) == 8);
+    }
+    {
+        // ADPCM のレベルは線形の利得。@V127 は FFh、V8 は 17h。
+        for (const auto& c : {std::pair<int, int>{127, 0xFF}, std::pair<int, int>{99, 0x17},
+                              std::pair<int, int>{67, 0x01}}) {
+            Rig r;
+            SequenceBlock b;
+            addTrack(b, 0, Device::OPL2EX1, kChannelAdpcm, {0x81, static_cast<uint8_t>(c.first), 0x0E, 24});
+            addTrack(b, 1, Device::OPNA, kOpnAdpcmB, {0x81, static_cast<uint8_t>(c.first), 0x0E, 24});
+            r.play(b, 2);
+            CHECK(r.bus.last(Device::OPL2EX1, 0x12) == c.second);
+            CHECK(r.bus.last(Device::OPNA, 0x0B, 1) == c.second);
+        }
+    }
+    {
+        // デバイス 8-11 の FM：OPM・OPN は 7 ビットの TL に 127 − 音量、OPL3 は 63 で止まる。
+        Rig r;
+        SequenceBlock b;
+        b.deviceVoices[0][0] = opnVoice(0x07, 0, 0xF0);
+        b.voices[0] = packedFm(0);
+        addTrack(b, 0, Device::OPM, 0, {0x85, 0, 0x81, 37, 0x00, 24});
+        addTrack(b, 1, Device::OPL3, 0, {0x85, 0, 0x81, 37, 0x00, 24});
+        addTrack(b, 2, Device::OPM, 1, {0x85, 0, 0x81, 0, 0x00, 24});
+        r.play(b, 4);
+        CHECK(r.bus.last(Device::OPM, 0x78) == 0x13 + 90);    // C2
+        CHECK(r.bus.last(Device::OPM, 0x60) == 0x10 + 90);    // AL 7 なので M1 も
+        CHECK(r.bus.last(Device::OPM, 0x79) == 127);          // 幅の底で止まる
+        CHECK(r.bus.last(Device::OPL3, 0x43) == (0xC0 | 63));
+        CHECK(r.bus.last(Device::OPL3, 0x40) == (0x80 | 63)); // 接続が加算
+    }
+    {
+        // マスターボリューム（CALL VOLUME と同じ）：96 なら V15 と V8 の OPLL は減衰 7 と 14。
+        // リズムの段も 4n + 67 から引いて段に戻す（V10 は減衰 12）。
+        Rig r;
+        SequenceBlock b;
+        b.masterVolume = 96;
+        b.rhythmMode[static_cast<size_t>(Device::OPLLEX2)] = true;
+        addTrack(b, 0, Device::OPLLEX1, 0, {0x82, 0x01, 0x81, 127, 0x00, 24});
+        addTrack(b, 1, Device::OPLLEX1, 1, {0x82, 0x01, 0x00, 24});
+        addTrack(b, 2, Device::OPLLEX2, kChannelRhythm, {0xA9, 10, 0xA8, 0, 0xC8, 0x10, 24});
+        r.play(b, 4);
+        CHECK((r.bus.last(Device::OPLLEX1, 0x30) & 0x0F) == 7);
+        CHECK((r.bus.last(Device::OPLLEX1, 0x31) & 0x0F) == 14);
+        CHECK((r.bus.last(Device::OPLLEX2, 0x36) & 0x0F) == 12);
+    }
+
+    // `AB`：OPNB は ADPCM-A の 01h（port 1）へ、0-63 をそのまま。
+    {
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::OPNB, kOpnRhythm, {0xAB, 33, 0x0E, 24});
+        r.play(b, 2);
+        CHECK(r.bus.last(Device::OPNB, 0x01, 1) == 33);
+    }
+
+    // マスターピッチは MTUNE として全部の音に効く。430.0Hz は 1/64 半音で -25。
+    {
+        Rig r;
+        SequenceBlock b;
+        b.masterPitch = 4300;
+        addTrack(b, 0, Device::SSGS, 0, {0x80, 4, 0x09, 24});
+        r.play(b, 4);
+        const uint16_t want = divPitch(Device::SSGS, 57, -25).divisor;
+        CHECK(r.bus.last(Device::SSGS, 0x00) == (want & 0xFF));
+        CHECK(r.bus.last(Device::SSGS, 0x01) == (want >> 8));
+    }
+
+    // 音長は 8191 tick まで。Q7 のゲートは 8191 × 7 ÷ 8 = 7167 tick で、16 ビットに収まる。
+    // 60Hz・T120 の割り込み1回は 1.6 tick。
+    {
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::SSGS, 0, {0x83, 7, 0x00, 0x9F, 0xFF, 0x00, 24});
+        r.play(b, 5200);
+        const int on2 = [&] {
+            int n = 0;
+            for (const auto& w : r.bus.writes) {
+                if (w.chip == Device::SSGS && w.reg == 0x08 && w.value != 0 && ++n == 2) return w.tick;
+            }
+            return -1;
+        }();
+        const int off = r.bus.firstTick(Device::SSGS, 0x08, 0, 1);
+        CHECK(off >= 4477 && off <= 4481);    // 7167 / 1.6
+        CHECK(on2 >= 5117 && on2 <= 5121);    // 8191 / 1.6
     }
 
     return check::finish("devices_test");

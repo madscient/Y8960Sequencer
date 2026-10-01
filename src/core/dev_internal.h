@@ -21,8 +21,26 @@ std::unique_ptr<SoundDevice> makeOpnDevice(ChipBus& bus, Device which, SoftEnvel
 // OPNA・OPNB の SSG 部。SSGS と同じドライバを1セットで使う。
 std::unique_ptr<SoundDevice> makeOpnSsg(ChipBus& bus, Device which, SoftEnvelope& envelope);
 
+// 音量 0-127（1 が 0.75 dB、127 がいちばん大きい）を、4 ビットの音量しか持たない
+// チップの段 0-15 に（devtab.asm の VOLSTEP）。チップの1段は約 3 dB なので、127 から
+// 4 下げるごとに1段下げ、15 段より下へは下げない。MML の V n（4n + 67）はちょうど段 n。
+inline uint8_t volumeStep(uint8_t loudness) {
+    const int down = (127 - (loudness & 127)) >> 2;
+    return static_cast<uint8_t>(15 - (down > 15 ? 15 : down));
+}
+
+// 音量を、線形の利得を持つ ADPCM のレベル 0-255 に（adpcm.asm の ADPVOLTAB と同じ式）。
+uint8_t adpcmLevel(uint8_t loudness);
+
+// 音量を、FM のオペレータの減衰に足す段数に。1段が 0.75 dB で、チップの幅（max）を
+// 超えて下げたぶんは幅の底で止める。
+inline uint8_t fmAttenuation(uint8_t loudness, uint8_t max) {
+    const int down = 127 - (loudness & 127);
+    return static_cast<uint8_t>(down > max ? max : down);
+}
+
 // リズムチャンネルの控え（rhythm.asm の CTL_RHYSAV）。OPLLEX・OPL2EX・OPL3 は
-// 5つの楽器、OPNA のリズムと OPNB の ADPCM-A は6つの楽器に使う。
+// 5つの楽器で音量 0-15、OPNA のリズムと OPNB の ADPCM-A は6つの楽器で音量 0-31 に使う。
 // 通常音量は楽器ごと、アクセント音量はすべてに共通。
 struct RhythmState {
     static constexpr int kInstruments = 6;
@@ -41,7 +59,12 @@ struct RhythmState {
     static constexpr uint8_t kAll      = 0x1F;
     static constexpr uint8_t kVolMax   = 15;
 
-    void toDefaults() { levels.fill(8); accent = 15; accents = 0; }
+    // リズムモードに入るとき（OPNA・OPNB は演奏を始めるとき）の値。
+    void toDefaults(uint8_t normal = 8, uint8_t accentLevel = 15) {
+        levels.fill(normal);
+        accent = accentLevel;
+        accents = 0;
+    }
 
     // RHY_SETVOL。target は kRhythmAccent か、楽器のビットマップ。
     void setLevel(uint8_t target, uint8_t value) {
@@ -54,16 +77,21 @@ struct RhythmState {
         }
     }
 
-    // レベルをシーケンスの音量ぶん下げたもの（RHYSCALE）。0-127 の `n*8+7` に直して
-    // から引く。4bit のまま引くと、シーケンスの音量が 8 の倍数に丸まる。
+    // 段 0-15 をシーケンスの音量ぶん下げたもの（RHYSCALE）。V と同じ 4n + 67 に直して
+    // から引き、段に戻す。段のまま引くと、シーケンスの音量が 4 の倍数に丸まる。
     uint8_t scaled(uint8_t value) const {
-        const int v = value * 8 + 7 + scale - 127;
-        return static_cast<uint8_t>(v < 0 ? 0 : (v >> 3) & kVolMax);
+        const int v = value * 4 + 67 + scale - 127;
+        return volumeStep(static_cast<uint8_t>(v < 0 ? 0 : v));
     }
 
-    // 楽器 bit が、この打撃で受け取るレベル 0-15。叩かれない楽器も普通のレベルを受け取る。
+    // 楽器 bit の、この打撃での音量（シーケンスの音量を引く前）。
+    uint8_t raw(uint8_t bit, uint8_t struckAccents) const {
+        return (bit & struckAccents) ? accent : levels[static_cast<size_t>(index(bit))];
+    }
+
+    // 楽器 bit が、この打撃で受け取る段 0-15。叩かれない楽器も普通のレベルを受け取る。
     uint8_t level(uint8_t bit, uint8_t struckAccents) const {
-        return scaled((bit & struckAccents) ? accent : levels[static_cast<size_t>(index(bit))]);
+        return scaled(raw(bit, struckAccents));
     }
 
     // 同じく減衰で。OPLL と OPL の書き方。

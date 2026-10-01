@@ -22,7 +22,7 @@ constexpr int kMarkCount     = 8;
 
 constexpr uint8_t kNoNote      = 0xFF;
 constexpr uint8_t kDefaultOct  = 4;
-constexpr uint8_t kDefaultVol  = 8 * 8 + 7;   // MML の V8
+constexpr uint8_t kDefaultVol  = 8 * 4 + 67;  // MML の V8。音量の 1 が 0.75 dB
 constexpr uint8_t kDefaultVoice = 0;
 constexpr uint8_t kQuantMax    = 8;
 constexpr uint8_t kMixerMax    = 127;
@@ -32,6 +32,8 @@ public:
     Sequencer(DeviceSet& devices, TickRate rate);
 
     // ブロックをシーケンスに割り当てる。演奏中のものには渡さないこと。
+    // ブロックのメタ情報のマスターピッチは MTUNE に、マスターボリュームはシーケンスの
+    // 音量になる（このプレイヤーはシーケンスを1本しか鳴らさない）。
     void load(int sequence, const SequenceBlock& block);
     // repeat が 0 なら終わらない。
     void start(int sequence, uint8_t repeat);

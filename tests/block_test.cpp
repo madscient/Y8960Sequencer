@@ -292,6 +292,30 @@ int main() {
     CHECK(!loads(block({{0x43, Bytes{9, 0}}})));
     CHECK(loads(block({{0x43, Bytes{12, 0}}})));
 
+    // チャンク 80（メタ情報）。知らない項目は飛ばし、壊れていても拒まない
+    {
+        const Bytes meta = {0x01, 2, 0x98, 0x11,              // 4504 は範囲の外
+                            0x02, 1, 100,
+                            0x09, 3, 1, 2, 3,                 // 知らない項目
+                            0x03, 5, 'T', 'u', 'n', 'e', 0x81,
+                            0x04, 2, 'M', 'e'};
+        SequenceBlock s;
+        std::string err;
+        CHECK(load(block({{0x80, meta}, {0x00, track(0, 0, 0)}}), s, err));
+        CHECK(s.masterPitch == 4400);
+        CHECK(s.masterVolume == 100);
+        CHECK(s.title == "Tune?");
+        CHECK(s.author == "Me");
+        CHECK(s.warnings.size() == 1);
+    }
+    {
+        SequenceBlock s;
+        std::string err;
+        CHECK(load(block({{0x80, Bytes{0x01, 2, 0x34, 0x11, 0x03, 9, 'x'}}}), s, err));
+        CHECK(s.masterPitch == 4404);
+        CHECK(s.warnings.size() == 1);                 // 切れている
+    }
+
     // リズムモードの推定
     {
         const Bytes b = block({{0x00, track(0, 2, 10)}, {0x00, track(1, 4, 7)}});

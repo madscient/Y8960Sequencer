@@ -85,7 +85,7 @@ public:
     void setVolume(uint8_t ch, uint8_t loudness) override {
         uint8_t local;
         if (!toLocal(ch, local)) return;
-        const uint8_t v = static_cast<uint8_t>((loudness >> 3) & kVolMax);
+        const uint8_t v = volumeStep(loudness);
         env_.setV(which_, ch, v);
         level_[local] = static_cast<uint8_t>((level_[local] & ~kVolMax) | v);
         writeLevel(local);

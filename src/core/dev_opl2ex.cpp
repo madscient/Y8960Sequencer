@@ -129,6 +129,8 @@ public:
             volume_[ch] = 0;
             transpose_[ch] = 0;
             voiceTl_[ch] = kTlMin;
+            modTl_[ch] = kTlMin;
+            additive_[ch] = false;
         }
         write(kRegRhythm, 0);
         rhythm_ = RhythmState{};
@@ -186,8 +188,8 @@ public:
             return;
         }
         if (ch == kChannelAdpcm) {
-            // レベルレジスタは8ビットで、減衰ではなくレベル。ラウドネスを倍にする。
-            write(kRegAdpcmVol, static_cast<uint8_t>(loudness * 2));
+            // レベルレジスタは8ビットの線形の利得。
+            write(kRegAdpcmVol, adpcmLevel(loudness));
             return;
         }
         if (ch >= kChannels) return;
@@ -247,11 +249,24 @@ public:
         return true;
     }
 
+    // `Y` で書いた 40h（モジュレータとキャリア）と C0h の接続は、ドライバが音量を
+    // 組み立てる控えにも入れる。効くのは次の `V` から（ROM と同じ）。
     bool regWrite(uint8_t port, uint8_t reg, uint8_t value) override {
         if (port != 0) return false;
         write(reg, value);
-        if (reg >= kRegFnumH && reg < kRegFnumH + kChannels) fnh_[reg - kRegFnumH] = value;
-        else if (reg == kRegRhythm) rhythm_.mode = value;
+        if (reg >= kRegFnumH && reg < kRegFnumH + kChannels) {
+            fnh_[reg - kRegFnumH] = value;
+        } else if (reg == kRegRhythm) {
+            rhythm_.mode = value;
+        } else if (reg >= kRegFbCon && reg < kRegFbCon + kChannels) {
+            additive_[reg - kRegFbCon] = (value & 1) != 0;
+        } else if (reg >= kRegKslTl && reg < kRegKslTl + kOpRegs) {
+            const uint8_t slot = static_cast<uint8_t>(reg - kRegKslTl);
+            for (uint8_t ch = 0; ch < kChannels; ++ch) {
+                if (slot == kSlot[ch]) modTl_[ch] = value;
+                else if (slot == kSlot[ch] + kCarrier) voiceTl_[ch] = value;
+            }
+        }
         return true;
     }
 
@@ -266,13 +281,18 @@ private:
     }
 
     // チップが取るレベルは音色自身のものに V が引くぶんを足したもの。片方だけでは
-    // 書けないので、対から組み立てる。
+    // 書けないので、対から組み立てる。接続が加算（C0h の bit0）なら両方のオペレータが
+    // 出力に出るので、モジュレータにも同じだけ足す（OPL2TLOUT）。
     void writeLevel(uint8_t ch) {
-        const uint8_t take = static_cast<uint8_t>((kMixerMaxLoudness - volume_[ch]) >> 1);
-        uint16_t level = static_cast<uint16_t>((voiceTl_[ch] & kTlMask) + take);
+        const uint8_t take = fmAttenuation(volume_[ch], kTlMin);
+        if (additive_[ch]) writeOneLevel(kSlot[ch], modTl_[ch], take);
+        writeOneLevel(static_cast<uint8_t>(kSlot[ch] + kCarrier), voiceTl_[ch], take);
+    }
+
+    void writeOneLevel(uint8_t slot, uint8_t voice, uint8_t take) {
+        uint16_t level = static_cast<uint16_t>((voice & kTlMask) + take);
         if (level > kTlMin) level = kTlMin;
-        const uint8_t value = static_cast<uint8_t>((voiceTl_[ch] & kKslMask) | level);
-        write(static_cast<uint8_t>(kRegKslTl + kSlot[ch] + kCarrier), value);
+        write(static_cast<uint8_t>(kRegKslTl + slot), static_cast<uint8_t>((voice & kKslMask) | level));
     }
 
     void loadVoice(uint8_t ch, const uint8_t* r) {
@@ -280,6 +300,8 @@ private:
         writeOperator(static_cast<uint8_t>(kSlot[ch]), r + kRecMod);
         writeOperator(static_cast<uint8_t>(kSlot[ch] + kCarrier), r + kRecCar);
         voiceTl_[ch] = r[kRecCar + kOpTl];
+        modTl_[ch] = r[kRecMod + kOpTl];
+        additive_[ch] = (r[kRecFb] & 1) != 0;
         transpose_[ch] = static_cast<int8_t>(r[kRecTrans]);
         writeLevel(ch);
     }
@@ -360,15 +382,15 @@ private:
         write(kRegAdpcmDnH, static_cast<uint8_t>(rate >> 8));
     }
 
-    static constexpr uint8_t kMixerMaxLoudness = 127;
-
     ChipBus& bus_;
     Device   which_;
     std::array<uint8_t, 256> shadow_{};
     std::array<uint8_t, kChannels> fnh_{};
     std::array<uint8_t, kChannels> volume_{};
     std::array<int8_t,  kChannels> transpose_{};
-    std::array<uint8_t, kChannels> voiceTl_{};
+    std::array<uint8_t, kChannels> voiceTl_{};   // キャリアの 40h（音色のもの）
+    std::array<uint8_t, kChannels> modTl_{};     // モジュレータの 40h（音色のもの）
+    std::array<bool,    kChannels> additive_{};  // C0h の接続が加算
     RhythmState rhythm_;
     const AdpcmVoiceFile* directory_ = nullptr;
     uint8_t  file_      = kAdpcmFiles;          // まだ選ばれていない

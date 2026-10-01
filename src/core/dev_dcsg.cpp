@@ -21,7 +21,6 @@ constexpr uint8_t kNoiseWhite   = 0x04;
 constexpr uint8_t kNoiseRates   = 4;
 constexpr uint8_t kNoiseFollow  = 3;
 constexpr uint8_t kAttOff       = 15;
-constexpr uint8_t kVolMax       = 15;
 
 constexpr uint8_t kSavKey    = 0x80;
 constexpr uint8_t kSavFollow = 0x40;
@@ -61,7 +60,7 @@ public:
 
     void setVolume(uint8_t ch, uint8_t loudness) override {
         if (ch >= kChannels) return;
-        const uint8_t v = static_cast<uint8_t>((loudness >> 3) & kVolMax);
+        const uint8_t v = volumeStep(loudness);
         env_.setV(which_, ch, v);
         state_[ch] = static_cast<uint8_t>((state_[ch] & ~kSavLevel) | v);
         writeAttenuation(ch);

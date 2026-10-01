@@ -70,7 +70,7 @@ public:
 
     void setVolume(uint8_t ch, uint8_t loudness) override {
         if (ch >= kChannels) return;
-        vol_[ch] = static_cast<uint8_t>((loudness >> 3) & kVolMax);
+        vol_[ch] = volumeStep(loudness);
         env_.setV(Device::SCC, ch, vol_[ch]);
         writeVolume(ch);
     }

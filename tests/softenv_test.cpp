@@ -1,7 +1,8 @@
 // ソフトウェアエンベロープ（`B2` とチャンク `04`）。期待する値の移り変わりは
 // Y8960BasicExtension の tools/emu/tcl/softenv.tcl がフォークのレジスタで見ているもの。
-// エンベロープ1 は AR 16、DR 20、SL 8、RR 10。キーオンとキーオフの割り込みがそれぞれ
-// アタックとリリースの1コマ目になる。
+// エンベロープ1 は AR 16、DR 20、SL 8、RR 10（MuSICA の 0-32）。チャンク 04 はそれを
+// コマと変化の生のバイトで持つ（11h 12h 08h 31h。ROM の softenv.tcl と同じ）。キーオンと
+// キーオフの割り込みがそれぞれアタックとリリースの1コマ目になる。
 
 #include "check.h"
 #include "seqtest.h"
@@ -21,15 +22,15 @@ constexpr uint8_t kSsgVolA  = 0x08;
 constexpr uint8_t kSccVol1  = 0x8B;
 constexpr uint8_t kSccEnable = 0x8F;
 
-constexpr int kV12 = 12 * 8 + 7;
-constexpr int kV15 = 15 * 8 + 7;
+constexpr int kV12 = 12 * 4 + 67;
+constexpr int kV15 = 15 * 4 + 67;
 
 // 60Hz、T120 では四分音符 48 tick が 30 回の割り込み。
 constexpr int kQuarter = 30;
 
 SequenceBlock withEnvelope(Device device, uint8_t channel, std::initializer_list<int> events) {
     SequenceBlock b = seqtest::oneTrack(device, channel, events);
-    b.envelopes[1] = {true, 16, 20, 8, 10};
+    b.envelopes[1] = {true, 0x11, 0x12, 8, 0x31};
     return b;
 }
 
@@ -216,7 +217,7 @@ int main() {
     {
         SequenceBlock b = seqtest::oneTrack(Device::SSGS, 0,
                                             {0xB2, 2, 0x81, kV15, 0x83, 2, 0x00, 48, 0x0C, 192});
-        b.envelopes[2] = {true, 32, 32, 15, 0};
+        b.envelopes[2] = {true, 0x1F, 0x1F, 15, 0xF1};   // 0-32 の 32、32、15、0
         Run r;
         play(r, b, TickRate::Vdp60, 120, ssgA);
         const int rest = kQuarter - 1;   // 48 tick を読み終える割り込み
@@ -286,6 +287,34 @@ int main() {
             }
         }
         CHECK(enableDropped);
+        // 休符のあいだの @E0 は、許可ビットを先に落としてから V の音量を書く。逆だと
+        // 2つの書き込みのあいだ V の音量で鳴る（ENVSOFF）。
+        std::vector<seqtest::Write> scc;
+        for (const auto& w : r.bus.writes) {
+            if (w.chip == Device::SCC) scc.push_back(w);
+        }
+        int lastV = -1;
+        for (size_t i = 0; i < scc.size(); ++i) {
+            if (scc[i].reg == kSccVol1 && scc[i].value == 8) lastV = static_cast<int>(i);
+        }
+        CHECK(lastV >= 1);
+        if (lastV >= 1) {
+            const auto& before = scc[static_cast<size_t>(lastV - 1)];
+            CHECK(before.reg == kSccEnable && !(before.value & 0x02));
+        }
+    }
+
+    // チャンク 04 のバイトは MuSICA の 33 通りに限らない。22h は2コマごとに 2 ずつ上がる
+    // （ROM の softenv.tcl の「AR を 22h に書き換えて MLOAD」）。
+    {
+        Run r;
+        SequenceBlock b = withEnvelope(Device::SSGS, 0, {0xB2, 1, 0x81, kV15, 0x00, 96});
+        b.envelopes[1].ar = 0x22;
+        play(r, b, TickRate::Vdp60, 20, ssgA);
+        const auto& v = r.levels;
+        CHECK(v.size() >= 4 && v[0] == 0 && v[1] == 2 && v[2] == 4 && v[3] == 6);
+        const int t2 = when(r.bus, ssgA, 2), t4 = when(r.bus, ssgA, 4);
+        CHECK(t2 >= 0 && t4 - t2 == 2);
     }
 
     // SSGS の @16 以上はソフトウェアエンベロープを止め、@E はハードウェアの選択を落とす。

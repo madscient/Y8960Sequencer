@@ -39,7 +39,6 @@ constexpr uint8_t kRhyFirst     = 6;
 constexpr uint8_t kOutA         = 0x10;   // 左
 constexpr uint8_t kOutB         = 0x20;   // 右
 constexpr uint8_t kOutAB        = kOutA | kOutB;
-constexpr uint8_t kLoudMax      = 127;
 
 constexpr uint8_t kSlot[kChPerPort] = {0x00, 0x01, 0x02, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12};
 
@@ -363,7 +362,7 @@ private:
 
     // キャリアのレベルは、音色自身のものに V が引くぶんを足したもの（OPL2EX と同じ量）。
     void writeLevels(uint8_t p, uint8_t loudness) {
-        const uint8_t take = static_cast<uint8_t>((kLoudMax - loudness) >> 1);
+        const uint8_t take = fmAttenuation(loudness, kTlMin);
         for (uint8_t i = 0; i < 2; ++i) {
             if (!((carriers_[p] >> i) & 1)) continue;
             uint16_t level = static_cast<uint16_t>((tl_[p][i] & kTlMask) + take);

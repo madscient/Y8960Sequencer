@@ -172,7 +172,7 @@ int main() {
         SequenceBlock only;
         only.version = 1;
         only.adpcm = block.adpcm;
-        addTrack(only, 0, Device::OPL2EX2, kChannelAdpcm, {0x82, 0x00, 0x00, 48});
+        addTrack(only, 0, Device::OPL2EX2, kChannelAdpcm, {0x81, 127, 0x82, 0x00, 0x00, 48});
 
         devices.resetAll();
         devices.setAdpcmDirectory(only.adpcm.data());

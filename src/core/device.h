@@ -50,10 +50,13 @@ public:
     // `B3`。音量を表で直すか（SCC）。
     virtual void setVolumeTable(uint8_t ch, bool table) { (void)ch; (void)table; }
     // `E9`。効果音モードのサブチャンネル（1-3）の高さの、親からの差（1/64 半音）。
+    // 音色によらず持ち、使うのは FX の音色のあいだだけ。
     virtual void setSubPitch(uint8_t ch, uint8_t sub, int16_t steps) { (void)ch; (void)sub; (void)steps; }
 
     // target が kRhythmAccent なら @A、それ以外は通常音量を変える楽器のビットマップ。
     virtual void rhythmVolume(uint8_t target, uint8_t level) { (void)target; (void)level; }
+    // `AB`。OPNA のリズムと OPNB の ADPCM-A の全体の音量 0-63。
+    virtual void rhythmTotal(uint8_t level) { (void)level; }
     virtual void rhythmStrike(uint8_t instruments, uint8_t accents) { (void)instruments; (void)accents; }
 
     // `D9`。ADPCM-A の楽器（ビットマップ）にサンプルを結び付ける。

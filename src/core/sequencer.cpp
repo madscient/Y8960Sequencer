@@ -3,6 +3,7 @@
 #include "freqtab.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace y8960 {
 
@@ -30,6 +31,7 @@ constexpr uint8_t kEvPan      = 0x87;
 constexpr uint8_t kEvRhyAccent = 0xA8;
 constexpr uint8_t kEvRhyVol    = 0xA9;
 constexpr uint8_t kEvRhyAccVol = 0xAA;
+constexpr uint8_t kEvRhyTotal  = 0xAB;
 constexpr uint8_t kEvSsgShape  = 0xB0;
 constexpr uint8_t kEvEnvelope  = 0xB2;
 constexpr uint8_t kEvSccTable  = 0xB3;
@@ -93,6 +95,11 @@ void Sequencer::load(int sequence, const SequenceBlock& block) {
         t.channel  = src.channel;
         t.events   = src.assigned ? &src.events : nullptr;
     }
+    s.volume  = block.masterVolume;
+    s.current = s.volume;
+    // A4 の周波数を、音律表の歩み（1/64 半音）に直す。0.1Hz 単位の値は歩みより細かいので、
+    // いちばん近い歩みに丸める（ROM の MTUNE も歩みで持つ）。
+    tune_ = static_cast<int16_t>(std::lround(kFreqSteps * std::log2(block.masterPitch / 4400.0)));
 }
 
 void Sequencer::start(int sequence, uint8_t repeat) {
@@ -118,10 +125,11 @@ void Sequencer::start(int sequence, uint8_t repeat) {
     }
 
     // リズムの V・@B など・@A は、リズムモードに入るときに既定へ戻る（ROM の RHYDEF）。
-    // 繰り返しの頭では戻らない。
+    // 繰り返しの頭では戻らない。OPNA と OPNB は 0-31 の幅で 24 と 31。
     for (Track& t : s.tracks) {
-        t.rhythmLevels.fill(8);
-        t.rhythmAccentLevel = 15;
+        const bool wide = rhythmInstruments(t.device) == kRhythmSlots;
+        t.rhythmLevels.fill(wide ? 24 : 8);
+        t.rhythmAccentLevel = wide ? 31 : 15;
     }
     if (activity_) activity_->allOff();
 
@@ -382,6 +390,7 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             device(t).rhythmVolume(rhythmBits(t.device), arg);
             break;
         case kEvRhyAccVol: t.rhythmAccentLevel = arg; device(t).rhythmVolume(kRhythmAccent, arg); break;
+        case kEvRhyTotal:  device(t).rhythmTotal(arg); break;
         case kEvSsgShape:  device(t).ssgEnv(SsgEnv::Shape, t.channel, arg); break;
         case kEvSccTable:  device(t).setVolumeTable(t.channel, arg == kSccTableOn); break;
         case kEvEnvelope: {
@@ -477,7 +486,7 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
             break;
         }
         case kEvSubPitch:
-            device(t).setSubPitch(t.channel, first, centToSteps(static_cast<int16_t>(distance)));
+            device(t).setSubPitch(t.channel, first, static_cast<int16_t>(distance));   // 1/64 半音
             break;
         case kEvBlock: {
             // ループの外のブロックは1周目として扱う。
@@ -635,8 +644,11 @@ void Sequencer::reportStrike(Sequence& s, const Track& t, uint8_t instruments) {
         if (!(instruments & bit)) continue;
         const uint8_t level15 = (t.rhythmAccent & bit) ? t.rhythmAccentLevel
                                                        : t.rhythmLevels[static_cast<size_t>(bitIndex)];
-        // 0-15 を V と同じく n*8+7 に伸ばし、シーケンスの音量ぶん下げる。
-        const uint8_t loud = subVol(static_cast<uint8_t>(level15 * 8 + 7), (s.mute || t.muted) ? 0 : s.current);
+        // 音量 0-127 に直してから、シーケンスの音量ぶん下げる。0-15 は V と同じ 4n + 67、
+        // OPNA・OPNB の 0-31 は1段が 0.75 dB なので 31 から下げたぶんを 127 から下げる。
+        const uint8_t asLoud = (count == 5) ? static_cast<uint8_t>(level15 * 4 + 67)
+                                            : static_cast<uint8_t>(96 + (level15 & 31));
+        const uint8_t loud = subVol(asLoud, (s.mute || t.muted) ? 0 : s.current);
         activity_->noteOn(t.device, static_cast<uint8_t>(kRhythmSlotFirst + i), loud);
     }
 }
