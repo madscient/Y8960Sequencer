@@ -10,13 +10,13 @@ namespace y8960 {
 namespace {
 
 // Y8960 の各ブロックのクロックは MSX 標準と同じ（Y8960BasicExtension の
-// doc/hardware.md「搭載音源」）。SSGS は 1.7897725MHz だが、EPSGemuEngine の SSGS は
+// doc/hardware.md「搭載音源」）。SSGS は 1.7897725MHz だが、DSAemuEngine の SSGS は
 // 5.12MHz 未満のマスタークロックを 1/2 して SSG 部に使うので、3.579545MHz を渡す。
 // デバイス 8-11 のクロックは Y8SQ 形式が決めていないので、各チップの標準のもの
 // （pitch.h）。音の高さの計算も同じ値を使う。
 constexpr uint32_t kClockMsx = 3579545;
 
-enum Library { kY8960emu = 0, kEpsg = 1, kDsa = 2, kYmfm = 3 };
+enum Library { kDsa = 0, kYmfm = 1 };
 
 struct Spec {
     Device      device;
@@ -28,18 +28,18 @@ struct Spec {
 // OPNB は YM2610B として作る。形式は OPNB と OPNB-B を区別せず、FM を6チャンネル
 // 持つのは OPNB-B のほう（bytecode.md「デバイス番号とチャンネル番号」）。
 constexpr Spec kSpecs[kDeviceCount] = {
-    {Device::SSGS,    kEpsg,     "SSGS",   kClockMsx},
-    {Device::OPLLEX1, kY8960emu, "OPLLEX", kClockMsx},
-    {Device::OPLLEX2, kY8960emu, "OPLLEX", kClockMsx},
-    {Device::OPL2EX1, kY8960emu, "OPL2EX", kClockMsx},
-    {Device::OPL2EX2, kY8960emu, "OPL2EX", kClockMsx},
-    {Device::DCSG1,   kDsa,      "DCSG",   kClockMsx},
-    {Device::DCSG2,   kDsa,      "DCSG",   kClockMsx},
-    {Device::SCC,     kDsa,      "SCC",    kClockMsx},
-    {Device::OPL3,    kYmfm,     "OPL3",   kClockOpl3},
-    {Device::OPM,     kYmfm,     "OPM",    kClockOpm},
-    {Device::OPNA,    kYmfm,     "OPNA",   kClockOpna},
-    {Device::OPNB,    kYmfm,     "OPNBB",  kClockOpnb},
+    {Device::SSGS,    kDsa,  "SSGS",   kClockMsx},
+    {Device::OPLLEX1, kDsa,  "OPLLEX", kClockMsx},
+    {Device::OPLLEX2, kDsa,  "OPLLEX", kClockMsx},
+    {Device::OPL2EX1, kDsa,  "OPL2EX", kClockMsx},
+    {Device::OPL2EX2, kDsa,  "OPL2EX", kClockMsx},
+    {Device::DCSG1,   kDsa,  "DCSG",   kClockMsx},
+    {Device::DCSG2,   kDsa,  "DCSG",   kClockMsx},
+    {Device::SCC,     kDsa,  "SCC",    kClockMsx},
+    {Device::OPL3,    kYmfm, "OPL3",   kClockOpl3},
+    {Device::OPM,     kYmfm, "OPM",    kClockOpm},
+    {Device::OPNA,    kYmfm, "OPNA",   kClockOpna},
+    {Device::OPNB,    kYmfm, "OPNBB",  kClockOpnb},
 };
 
 // ADPCM-B を持ち、ボイスファイルのメモリを見るもの。
@@ -47,9 +47,9 @@ constexpr Device kAdpcmBChips[] = {Device::OPL2EX1, Device::OPL2EX2, Device::OPN
 
 } // namespace
 
-const std::array<const char*, 4>& Y8960Chips::libraryBaseNames() {
-    static const std::array<const char*, 4> names = {
-        "Y8960emuEngine", "EPSGemuEngine", "DSAemuEngine", "YMFMEngine",
+const std::array<const char*, 2>& Y8960Chips::libraryBaseNames() {
+    static const std::array<const char*, 2> names = {
+        "DSAemuEngine", "YMFMEngine",
     };
     return names;
 }
@@ -74,12 +74,17 @@ bool Y8960Chips::open(const std::filesystem::path& libraryDir, uint32_t sampleRa
         levels_[index].store(0.0f, std::memory_order_relaxed);
     }
 
-    // どれも同じバッファを指すことで、共有メモリになる。
+    // 同じブロックを RAM として割り当てると、エンジンは複製せずにその場で読むので、
+    // 共有メモリになる。ROM として割り当てるとエンジンは複製してよく、あとで
+    // loadAdpcmMemory で写した中身が見えるとは限らない。
+    // OPNA の FM_MEM_ADPCM_B は RAM モード（ctrl2 の bit0 が 0）のメモリで、ドライバも
+    // RAM モードで鳴らす（dev_opn.cpp）。
     adpcm_.assign(kAdpcmMemorySize, 0);
     for (Device d : kAdpcmBChips) {
         const size_t index = static_cast<size_t>(d);
-        if (!engines_[index].setMemory(chipIds_[index], kFmMemAdpcmB, adpcm_.data(), kAdpcmMemorySize)) {
-            error = "cannot set the ADPCM memory";
+        if (!engines_[index].setMemoryEx(chipIds_[index], kFmMemAdpcmB, 0, adpcm_.data(), kAdpcmMemorySize,
+                                         kFmAccessRam)) {
+            error = "cannot share the ADPCM memory";
             return false;
         }
     }

@@ -100,7 +100,7 @@ y8960gui [シーケンスファイルかフォルダ] [--adpcm <ADPCM サンプ�
 - 音量は、1 が 0.75 dB の目盛り（`V`*n* が 4*n* ＋ 67）として読む。音量を 8*n* ＋ 7 の
   目盛りで書いた古いシーケンスは、`V15` 以外が本来より小さく鳴る
 - **OPNA のリズムと OPNB の ADPCM-A は鳴らない。** サンプルの中身（OPNA はチップ内蔵の
-  ROM、OPNB はサンプル ROM）をエミュレータに渡す手段が無いため
+  ROM、OPNB はサンプル ROM）を読み込む手段が、このプレイヤーにまだ無いため
 - OPL3・OPM・OPNA・OPNB のクロックは、それぞれ 14.31818MHz・3.579545MHz・7.9872MHz・
   8MHz
 
@@ -112,22 +112,24 @@ Linux と macOS は、ソースからビルドする。
 
 ## エミュレータ
 
-次の4本の共有ライブラリを、`y8960player` と同じフォルダに置く。Windows 版の
+次の2本の共有ライブラリを、`y8960player` と同じフォルダに置く。Windows 版の
 zip には入っている。
 
 | ライブラリ | 鳴らす音源 | Windows | Linux | macOS |
 |---|---|---|---|---|
-| [Y8960emu](https://github.com/madscient/Y8960emu) | OPLLEX、OPL2EX | `Y8960emuEngine.dll` | `libY8960emuEngine.so` | `libY8960emuEngine.dylib` |
-| [EPSGemuEngine](https://github.com/madscient/EPSGemuEngine) | SSGS | `EPSGemuEngine.dll` | `libEPSGemuEngine.so` | `libEPSGemuEngine.dylib` |
-| [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | DCSG、SCC | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
+| [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | SSGS、OPLLEX、OPL2EX、DCSG、SCC | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
 | [YMEngine](https://github.com/madscient/YMEngine) | OPL3、OPM、OPNA、OPNB | `YMFMEngine.dll` | `libYMFMEngine.so` | `libYMFMEngine.dylib` |
+
+どちらも、ADPCM メモリを共有するための外部メモリの割り当て（FmEngineApi の
+`FmEngine_SetMemoryEx`）に対応した版が要る。対応していない版を置くと、起動時にその旨を
+出して止まる。
 
 ## ビルド
 
 CMake 3.20 以上と C++17 のコンパイラが要る。
 
 ```sh
-cmake -S . -B build/player -DY8960_EMULATOR_DIR=<4本のライブラリを置いたフォルダ>
+cmake -S . -B build/player -DY8960_EMULATOR_DIR=<2本のライブラリを置いたフォルダ>
 cmake --build build/player --config Release
 ctest --test-dir build/player -C Release --output-on-failure
 ```
@@ -135,7 +137,7 @@ ctest --test-dir build/player -C Release --output-on-failure
 `Y8960_EMULATOR_DIR` は省略できる。渡すと、ライブラリを実行ファイルのフォルダへ
 写し、エミュレータを使う試験（`chips_test` と `render_test`）も登録する。
 
-Windows の配布 zip は `python tools/package_windows.py <版>` で作る。4つの
+Windows の配布 zip は `python tools/package_windows.py <版>` で作る。2つの
 エミュレータのリポジトリが、このリポジトリと同じフォルダに並んでいる前提。
 
 SDL3 と Dear ImGui は CMake が取得する。`-DY8960_BUILD_GUI=OFF` で GUI を、

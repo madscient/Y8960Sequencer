@@ -213,13 +213,14 @@ int main() {
     }
 
     // ADPCM が実際にサンプルメモリを読んでいるか。音が出るだけでは、メモリを読まず
-    // に出る音と見分けられないので、中身を変えて出力が変わることを見る。
-    {
+    // に出る音と見分けられないので、中身を変えて出力が変わることを見る。中身は開いた
+    // あとで写すので、エンジンがメモリを複製せずに共有していることも見ている。
+    for (Device d : {Device::OPL2EX1, Device::OPL2EX2}) {
         auto renderAdpcm = [&](const std::vector<uint8_t>& memory) {
             SequenceBlock only;
             only.version = 1;
             only.adpcm = block.adpcm;
-            addTrack(only, 0, Device::OPL2EX2, kChannelAdpcm, {0x82, 0x00, 0x00, 48});
+            addTrack(only, 0, d, kChannelAdpcm, {0x82, 0x00, 0x00, 48});
             chips.loadAdpcmMemory(memory);
             devices.resetAll();
             devices.setAdpcmDirectory(only.adpcm.data());
@@ -242,30 +243,40 @@ int main() {
         double diff = 0;
         for (size_t i = 0; i < a.size(); ++i) diff += std::fabs(double(a[i]) - b[i]);
         diff /= static_cast<double>(a.size());
-        std::printf("adpcm memory A vs B: mean |diff| = %.5f\n", diff);
+        std::printf("%s adpcm memory A vs B: mean |diff| = %.5f\n", d == Device::OPL2EX1 ? "OPL2EX1" : "OPL2EX2", diff);
         CHECK(diff > 0.001);
     }
 
     // 呼び出し側が一度に求めるサンプル数で音が変わらないこと。リアルタイム再生では
-    // 音声出力が求める量が負荷で揺れる。同じ tick の KEY OFF → KEY ON は、
-    // エミュレータが間に少し音を作って KEY OFF を見せるが、求める量が割り込みの
-    // 直後で切れているとその分が作れない。
+    // 音声出力が求める量が負荷で揺れる。同じ tick の KEY OFF → KEY ON を、1回の生成の
+    // 中で間を作って見せるエンジンだと、求める量が割り込みの直後で切れているとその分が
+    // 作れない（Player が割り込み1回ぶんをまとめて作るのはこのため）。
     {
+        // 同じ音を4つ。クオンタイズ 8 なので、音の境目で KEY OFF と KEY ON が同じ tick に来る。
+        const std::vector<uint8_t> notes = {0x85, 0x00, 0x00, 24, 0x00, 24, 0x00, 24, 0x00, 24};
         SequenceBlock legato;
         legato.version = 1;
         legato.voices[0] = fmVoice();
-        // 同じ音を4つ。クオンタイズ 8 なので、音の境目で KEY OFF と KEY ON が同じ tick に来る。
-        addTrack(legato, 0, Device::OPLLEX1, 0, {0x85, 0x00, 0x00, 24, 0x00, 24, 0x00, 24, 0x00, 24});
-        addTrack(legato, 1, Device::OPL2EX1, 0, {0x85, 0x00, 0x00, 24, 0x00, 24, 0x00, 24, 0x00, 24});
+        addTrack(legato, 0, Device::OPLLEX1, 0, notes);
+        addTrack(legato, 1, Device::OPL2EX1, 0, notes);
+        addTrack(legato, 2, Device::OPL3, 0, notes);
+        SequenceBlock opl3Only;
+        opl3Only.version = 1;
+        opl3Only.voices[0] = fmVoice();
+        addTrack(opl3Only, 0, Device::OPL3, 0, notes);
         const uint32_t total = kRate;
-        auto renderIn = [&](uint32_t chunk) {
-            devices.resetAll();
-            Sequencer s(devices, TickRate::Hz200);
-            s.load(0, legato);
-            Player p(chips, s, TickRate::Hz200, kRate);
-            rms(p, kRate / 20);
-            s.start(0, 1);
+        // 波形どうしを比べるので、エミュレータの内部状態（位相など）を揃えるため毎回開き直す。
+        auto renderIn = [&](const SequenceBlock& b, uint32_t chunk) {
             std::vector<float> l(total), r(total);
+            Y8960Chips c;
+            std::string err;
+            if (!c.open(executableDirectory(), kRate, err)) return l;
+            DeviceSet d(c);
+            d.resetAll();
+            Sequencer s(d, TickRate::Hz200);
+            s.load(0, b);
+            Player p(c, s, TickRate::Hz200, kRate);
+            s.start(0, 1);
             for (uint32_t at = 0; at < total; at += chunk) {
                 p.render(l.data() + at, r.data() + at, std::min(chunk, total - at));
             }
@@ -294,9 +305,20 @@ int main() {
             }
             return count;
         };
-        for (uint32_t chunk : {total, 1024u, 7u, 1u}) {
-            const int n = dips(renderIn(chunk));
-            std::printf("chunk %u: %d dips\n", chunk, n);
+        const std::vector<float> whole = renderIn(legato, total);
+        for (uint32_t chunk : {1024u, 7u, 1u}) {
+            const std::vector<float> l = renderIn(legato, chunk);
+            double worst = 0;
+            for (uint32_t i = 0; i < total; ++i) worst = std::max(worst, std::fabs(double(l[i]) - whole[i]));
+            std::printf("chunk %u: max |diff| = %g\n", chunk, worst);
+            CHECK(worst == 0.0);
+        }
+        // KEY OFF → KEY ON の重なりを本当に踏んでいること。DSAemuEngine の OPL2EX は
+        // KEY ON をその時点のレベルからのアタックで始めるので谷ができず、OPLLEX は
+        // 境目によって谷が割れるので、OPL3 だけで数える。
+        for (uint32_t chunk : {total, 1u}) {
+            const int n = dips(renderIn(opl3Only, chunk));
+            std::printf("OPL3 chunk %u: %d dips\n", chunk, n);
             CHECK(n == 3);
         }
     }
@@ -357,7 +379,8 @@ int main() {
 
     // OPL2EX の波形選択が効くこと。チップは YM3812 と同じく WSE（01h の bit5）が
     // 立っていないと E0h-F5h を無視する。キャリアだけを半波サインで鳴らすと、
-    // 効いていれば負の側がほとんど出ない。
+    // 効いていれば片側がほとんど出ない。出力の極性はエミュレータによって違う
+    // （DSAemuEngine は負の側に出る）ので、どちらの側かは問わない。
     {
         SequenceBlock only;
         only.version = 1;
@@ -377,12 +400,14 @@ int main() {
         p.render(l.data(), r.data(), static_cast<uint32_t>(l.size()));
         const auto [lo, hi] = std::minmax_element(l.begin() + kRate / 50, l.end());
         std::printf("opl2ex half sine: min=%.4f max=%.4f\n", *lo, *hi);
-        CHECK(*hi > 0.005f);
-        CHECK(*lo > -0.1f * *hi);
+        const float big   = std::max(*hi, -*lo);
+        const float small = std::min(*hi, -*lo);
+        CHECK(big > 0.002f);
+        CHECK(small < 0.1f * big);
     }
 
-    // デバイス 8-11（YMEngine）。O4 A を鳴らし、出てきた音の高さを測る。F-Number・KC・
-    // 分周値の計算と、チップのクロックの前提が合っていれば 440Hz になる。
+    // O4 A を鳴らし、出てきた音の高さを測る。F-Number・KC・分周値の計算と、チップの
+    // クロックの前提が合っていれば 440Hz になる。
     {
         const auto fmVoice4op = [] {
             VoiceRecord v;
@@ -416,12 +441,17 @@ int main() {
             const char* name;
             Device      device;
             uint8_t     channel;
+            bool        panned;     // `87` で定位が変わる。OPN 系の SSG と、OPLLEX・OPL2EX は持たない
         };
         const Case cases[] = {
-            {"OPL3 ch0", Device::OPL3, 0},  {"OPL3 ch9", Device::OPL3, 9},  {"OPL3 ch18", Device::OPL3, 18},
-            {"OPM ch0", Device::OPM, 0},
-            {"OPNA ch0", Device::OPNA, 0},  {"OPNA ch3", Device::OPNA, 3},  {"OPNA ch6", Device::OPNA, 6},
-            {"OPNB ch1", Device::OPNB, 1},  {"OPNB ch4", Device::OPNB, 4},  {"OPNB ch6", Device::OPNB, 6},
+            {"OPLLEX1 ch0", Device::OPLLEX1, 0, false}, {"OPL2EX1 ch0", Device::OPL2EX1, 0, false},
+            {"OPL3 ch0", Device::OPL3, 0, true},  {"OPL3 ch9", Device::OPL3, 9, true},
+            {"OPL3 ch18", Device::OPL3, 18, true},
+            {"OPM ch0", Device::OPM, 0, true},
+            {"OPNA ch0", Device::OPNA, 0, true},  {"OPNA ch3", Device::OPNA, 3, true},
+            {"OPNA ch6", Device::OPNA, 6, false},
+            {"OPNB ch1", Device::OPNB, 1, true},  {"OPNB ch4", Device::OPNB, 4, true},
+            {"OPNB ch6", Device::OPNB, 6, false},
         };
         for (const Case& c : cases) {
             SequenceBlock b;
@@ -430,17 +460,16 @@ int main() {
             b.deviceVoices[static_cast<size_t>(Device::OPNB) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
             b.deviceVoices[static_cast<size_t>(Device::OPNA) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
             b.deviceVoices[0][0] = sineOpn();
-            // 左だけに出す。右が黙っていれば `87` がチップの左右に届いている。SSG は定位を持たない。
+            // 左だけに出す。右が黙っていれば `87` がチップの左右に届いている。
             addTrack(b, 0, c.device, c.channel, {0x85, 0x00, 0x87, 0x00, 0x80, 4, 0x09, 96});
             const Stereo out = renderFresh(b, kRate / 2);
             const double f = frequency(out.l, kRate / 10);
             const double r = rmsOf(out.r, kRate / 10);
             const double l = rmsOf(out.l, kRate / 10);
-            std::printf("%-10s %.2fHz  L rms=%.4f R rms=%.4f\n", c.name, f, l, r);
+            std::printf("%-12s %.2fHz  L rms=%.4f R rms=%.4f\n", c.name, f, l, r);
             CHECK(std::fabs(f - 440.0) < 4.4);
-            CHECK(l > 0.005);
-            const bool ssg = (c.channel == kOpnSsgFirst);
-            if (!ssg) CHECK(r < l * 0.01);
+            CHECK(l > 0.003);
+            if (c.panned) CHECK(r < l * 0.01);
         }
     }
 

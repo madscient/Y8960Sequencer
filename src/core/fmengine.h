@@ -1,9 +1,9 @@
 #pragma once
 // FmEngineApi 準拠の共有ライブラリを実行時に読み込む。
 //
-// Y8960emu・EPSGemuEngine・DSAemuEngine・YMEngine はどれも同じ名前の関数を公開するので、
+// DSAemuEngine・YMEngine はどちらも同じ名前の関数を公開するので、
 // ヘッダを取り込んでリンクすることはできない。関数の形だけをここに写し、
-// ライブラリごとに関数ポインタで呼ぶ。形の出典は各リポジトリの src/FmEngineApi.h。
+// ライブラリごとに関数ポインタで呼ぶ。形の出典は FMEngineTest の docs/FmEngineApi.md。
 
 #include "platform.h"
 
@@ -28,6 +28,11 @@ enum FmEngineMemory : int32_t {
     kFmMemAdpcmB = 2,
 };
 
+enum FmEngineAccess : int32_t {
+    kFmAccessRom = 0,
+    kFmAccessRam = 1,
+};
+
 class FmEngineLibrary {
 public:
     bool open(const std::filesystem::path& path, std::string& error);
@@ -40,7 +45,8 @@ public:
     int32_t     (Y8960_FMENGINE_CALL* addChip)(Handle, const char* name, uint32_t clock, uint32_t* outId) = nullptr;
     int32_t     (Y8960_FMENGINE_CALL* write)(Handle, uint32_t chipId, uint8_t reg, uint8_t value, uint32_t port) = nullptr;
     int32_t     (Y8960_FMENGINE_CALL* setGain)(Handle, uint32_t chipId, float gainL, float gainR) = nullptr;
-    int32_t     (Y8960_FMENGINE_CALL* setMemory)(Handle, uint32_t chipId, int32_t memType, const uint8_t* data, uint32_t size) = nullptr;
+    int32_t     (Y8960_FMENGINE_CALL* setMemoryEx)(Handle, uint32_t chipId, int32_t memType, uint32_t base,
+                                                   uint8_t* data, uint32_t size, int32_t access) = nullptr;
     int32_t     (Y8960_FMENGINE_CALL* generate)(Handle, float* outL, float* outR, uint32_t samples) = nullptr;
 
 private:
@@ -62,7 +68,10 @@ public:
         lib_->write(handle_, chipId, reg, value, port);
     }
     void setGain(uint32_t chipId, float l, float r) { lib_->setGain(handle_, chipId, l, r); }
-    bool setMemory(uint32_t chipId, FmEngineMemory type, const uint8_t* data, uint32_t size);
+    // data をチップのメモリの [base, base + size) に割り当てる。RAM として割り当てると、
+    // エンジンは複製せずにその場で読み書きする。data はエンジンを壊すまで手放さないこと。
+    bool setMemoryEx(uint32_t chipId, FmEngineMemory type, uint32_t base,
+                     uint8_t* data, uint32_t size, FmEngineAccess access);
     void generate(float* l, float* r, uint32_t n) { lib_->generate(handle_, l, r, n); }
 
 private:

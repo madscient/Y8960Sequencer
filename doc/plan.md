@@ -86,16 +86,23 @@ ROM のシーケンサとデバイスドライバ（`Y8960BasicExtension/src/res
 ### エミュレータは、利用者が置いたビルド済みの共有ライブラリを実行時に読み込む
 
 - 利用者の選択（2026-09-15）。YMEngine は利用者の指示（2026-10-01、デバイス 8-11 を鳴らす）
-- 使う4本と担当するデバイス
+- **2本にした**（利用者の指示、2026-10-02）「DSAemuEngineにY8960エミュレーションが追加された
+  ので、Y8960emuを使用しないことにします。DSAemuEngineとYMEngineを使用することにして
+  ください」。それまでは Y8960emu
+  （OPLLEX・OPL2EX）・EPSGemuEngine（SSGS）・DSAemuEngine（DCSG・SCC）・YMEngine の4本
+- **EPSGemuEngine もやめ、SSGS も DSAemuEngine で鳴らす**（こちらの解釈）。指示は Y8960emu を
+  やめるとだけ言うが、使うものとして2本を挙げており、DSAemuEngine は SSGS も持つ（`9cfe69c`）。
+  SSGS のレジスタ配置とクロックの意味（マスタークロック、5.12MHz 未満なら 1/2）は2本で同じ。
+  値段: SSGS を EPSGemuEngine に戻すなら `chips.cpp` の表の1行とライブラリ名の並び、
+  CMake と配布スクリプトの一覧、README の表
+- 使う2本と担当するデバイス
 
 | ライブラリ | チップ名 | デバイス |
 |---|---|---|
-| Y8960emu | `OPLLEX` ×2、`OPL2EX` ×2 | OPLL-EX、OPL2-EX（ADPCM を含む） |
-| EPSGemuEngine | `SSGS` | SSGS |
-| DSAemuEngine | `DCSG` ×2、`SCC` | DCSG、SCC |
+| DSAemuEngine | `SSGS`、`OPLLEX` ×2、`OPL2EX` ×2、`DCSG` ×2、`SCC` | デバイス 0-7（OPL2EX の ADPCM を含む） |
 | YMEngine | `OPL3`、`OPM`、`OPNA`、`OPNBB` | OPL3、OPM、OPNA、OPNB（下の「デバイス 8-11」） |
 
-- 4本とも同じ名前の関数（`FmEngine_*`、`FmEngineApi.h`）を公開しているので、
+- 2本とも同じ名前の関数（`FmEngine_*`、`FmEngineApi.h`）を公開しているので、
   1つの実行ファイルに静的にリンクすると名前が衝突する。**実行時に読み込む
   方式はこの点でも必要**
 - **実行ファイルと同じフォルダから探す**（利用者の決定、2026-09-15）。探す名前は
@@ -103,17 +110,46 @@ ROM のシーケンサとデバイスドライバ（`Y8960BasicExtension/src/res
 
 | ライブラリ | Windows | Linux | macOS |
 |---|---|---|---|
-| Y8960emu | `Y8960emuEngine.dll` | `libY8960emuEngine.so` | `libY8960emuEngine.dylib` |
-| EPSGemuEngine | `EPSGemuEngine.dll` | `libEPSGemuEngine.so` | `libEPSGemuEngine.dylib` |
 | DSAemuEngine | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
 | YMEngine | `YMFMEngine.dll` | `libYMFMEngine.so` | `libYMFMEngine.dylib` |
 
-- **前提**: 4本が FmEngineApi の C API を保ち、出力名を変えないこと。変わったら
+- **前提**: 2本が FmEngineApi の C API を保ち、出力名を変えないこと。変わったら
   上の表と、名前を持つコード1箇所を直す
+- **`FmEngine_SetMemoryEx` は、仕様では任意のエクスポートだが必須として扱う**（こちらで
+  決めた）。下の「ADPCM メモリの共有」に要る。無いライブラリは開くときに
+  `missing FmEngine_SetMemoryEx` で止まる（**確認済み**：それまで開発に使っていた、この関数を
+  持たない DSAemuEngine と YMEngine の DLL を片方ずつ置いて CLI を起動した）。対応したのは
+  DSAemuEngine `815c42a`、YMEngine `ac29207`。値段: 無いエンジンでも開くなら、`FmEngine_SetMemory` で中身を写す
+  経路を足し、`loadAdpcmMemory` のたびに写し直す（`fmengine.cpp` と `chips.cpp`）
 - **YMEngine も必須にした**（こちらで決めた、2026-10-01）。無ければデバイス 0-7 だけの曲も
   開けない。無いときにデバイス 8-11 だけを「鳴らさないデバイス」として飛ばす形もありうるが、
   `Y8960Chips` が欠けたエンジンを持つ分岐が要る。配布物には同梱するので、要らないと判断した。
   値段: `chips.cpp` の `open` と `render` に分岐、試験の登録条件
+
+### ADPCM メモリの共有は、FmEngineApi の外部メモリの割り当てで表す
+
+利用者の指示（2026-10-02）「FmEngineApiが改定され、Y8960OPL2EXのADPCMメモリ共有がAPIで
+サポートされているので追従してください」。仕様は FMEngineTest の `docs/FmEngineApi.md`（`e002890`）。
+
+- `Y8960Chips` が 256KB のブロックを1つ持ち、OPL2EX ×2・OPNA・OPNB の `FM_MEM_ADPCM_B` の
+  番地 0 に、同じブロックを **`FM_ACCESS_RAM`** で割り当てる。DSAemuEngine の README の
+  「共有」の割り当て方（2回路ともブロック全体を `base` 0 に）にあたる。ボイスファイル番号は
+  デバイスを区別しない（`bytecode.md`）ので、全部が同じ中身を見る
+- **RAM にする理由**: 仕様では、ROM の割り当てはエンジンが複製してよく、RAM の割り当ては
+  その場で読み書きする。プレイヤーは開いたあとで `loadAdpcmMemory` が中身を写すので、
+  複製されると見えない。前の `FmEngine_SetMemory` は複製するか参照するかがエンジン次第で、
+  Y8960emu と YMEngine が参照していたことに頼っていた（DSAemuEngine の `FmEngine_SetMemory` は
+  チップごとに複製する）
+- OPNA の `FM_MEM_ADPCM_B` は RAM モード（ctrl2 の bit0 が 0）のメモリ。ドライバは ctrl2 に
+  `C2h` を書くので RAM モード（`dev_opn.cpp` を読んで確かめた）。ROM モードで鳴らすことに
+  なったら `FM_MEM_ADPCM_B_ROMMODE` にも割り当てる
+- **前提**: 仕様が呼び出し側に求めること（`FmEngine_Generate` の実行中に別のスレッドから
+  ブロックに触らない。エンジンが壊れるまでブロックを解放しない）を守ること。`PlaybackEngine` は
+  `loadAdpcmMemory` と生成をどちらも `mutex_` の中で呼ぶ（`engine.cpp` を読んで確かめた）。
+  ブロックはエンジンより後に壊す（`chips.h` の宣言順）
+- CRT の静的リンク（下の「配布物」）との関係：ブロックはモジュールをまたいで渡るが、確保と
+  解放はプレイヤーの側だけで、エンジンは解放しない（仕様）。前提は崩れていない
+- 値段: 割り当て方（共有・分割・片寄せ）を変えるのは `chips.cpp` の `open` の数行
 
 ### コマンド名は `y8960player`、第1引数がシーケンスファイル、`--adpcm` で ADPCM
 
@@ -200,16 +236,18 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
 
 利用者の決定（2026-09-19、v0.1.0）。`tools/package_windows.py` が作る。
 
-- 4つのエミュレータの DLL を同梱し、`licenses/` に同梱物すべてのライセンス文を
-  入れる（エミュレータ4つ、ymfm、MAME 由来の3つ、emu* の5つ、SDL3、Dear ImGui）。
-  ymfm は Y8960emu と YMEngine の両方が持つが、ライセンス文は同じなので1つ（Y8960emu のもの）。
+- エミュレータの DLL を同梱し、`licenses/` に同梱物すべてのライセンス文を
+  入れる（エミュレータ2つ、ymfm（YMEngine のもの）、emu* の5つ、SDL3、Dear ImGui）。
   **ライセンス文が揃っていなければ、ビルドの前に止まる**
   どれも表示を条件に再頒布を許すライセンス。エミュレータの `extern/` が増えたら、
-  スクリプトの一覧も足す
+  スクリプトの一覧も足す。DSAemuEngine の OPLLEX の音色データは別のライセンスで、
+  `licenses/` に入っていない（下の未決事項）
 - CRT を静的リンクする（`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`）。VC++ の
   再頒布パッケージを利用者に入れさせないため。モジュールごとに CRT のヒープが
   別になるが、FmEngineApi は C の関数だけで、確保と解放がモジュールをまたがない
-  ので成り立つ。**API がモジュールをまたいでメモリを渡すようになったら成り立たない**
+  ので成り立つ。`FmEngine_SetMemoryEx` はプレイヤーのメモリをエンジンに渡すが、
+  解放するのはプレイヤーだけ（仕様でエンジンは解放しない）。**確保と解放が別の
+  モジュールになる API が出たら成り立たない**
 - `subst` で割り当てたドライブの上でビルドする。SDL3 の `__FILE__` が実行ファイルに
   残り、実際のパスには利用者の名前が入るため。スクリプトは仕上がったバイナリを
   ホームフォルダのパスで検査し、見つかれば zip を作らない
@@ -238,7 +276,7 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
   `bytecode.md` の「ボイスファイル番号はデバイスを区別しない」。アドレスの単位は OPNA が
   8 ビット単位の DRAM（32 バイト、ctrl2 の bit1 を立てる）、OPNB が 256 バイト
 - **OPNA のリズムと OPNB の ADPCM-A は鳴らさない**（こちらで決めた）。サンプルの中身
-  （OPNA はチップ内蔵の ROM、OPNB はサンプル ROM）を渡す手段が無く、中身が無いと ymfm は
+  （OPNA はチップ内蔵の ROM、OPNB はサンプル ROM）をプレイヤーが受け取る手段が無く、中身が無いと ymfm は
   0 のバイト列を復号して大きな雑音を出す（**確認済み**：6楽器を叩いて RMS 1.02。FM の音は
   0.01 前後）。ドライバはレジスタを書き、`Y8960Chips::write` が ADPCM-A のキーオンだけを
   捨てる。**前提**: 中身を渡す手段が無いこと。手段を足したら、その1行を条件付きにする
@@ -382,20 +420,60 @@ ROM イメージをそのまま Z80 エミュレータで走らせ、I/O ポー�
 
 - **ADPCM-A のサンプル（OPNB）と OPNA のリズム ROM の与え方。** ブロックには入らない
   （形式どおり）。**ADPCM-A 用の Y8PC 形式を利用者が別途定める**（利用者の決定、2026-10-01）。
-  定まったら、読んだ中身を `Y8960Chips` から YMEngine の `FmEngine_SetMemory`（ADPCM-A）に
-  渡し、`Y8960Chips::write` がキーオンを捨てている1行を、中身があるときは通すように変える
-- **YMEngine のリポジトリに LICENSE ファイルが無い**（README は MIT と書く）。配布スクリプトは
-  そこで止まる。YMEngine 側で足してもらう必要がある
-- **OPL 族の高さが 0.56% 高い**（**確認済み**、測っただけ）。O4 A が、OPL2EX・OPLLEX
-  （Y8960emu）でも OPL3（YMEngine）でも 442.48Hz になる。F-Number は 440.0Hz の値（580）。
-  OPNA・OPNB は 440.2-440.3Hz、OPM は 441.96Hz。ymfm か、エンジンの再標本化のどちらかによる
-  もので、このプレイヤーの計算ではない（F-Number の計算は ROM の表と同じで、OPN 系は
-  同じ測り方で 440Hz に出る）。原因は調べていない
+  定まったら、読んだ中身を `Y8960Chips` から YMEngine の `FmEngine_SetMemoryEx` の
+  `FM_MEM_ADPCM_A`（仕様 `e002890` で、OPNA はリズムの内蔵 ROM の内容、OPNB は ADPCM-A の
+  メモリ）に割り当て、`Y8960Chips::write` がキーオンを捨てている1行を、中身があるときは
+  通すように変える
 - **Linux と macOS で YMEngine をビルドしていない**（未検証）
 - **GUI で新しいデバイスを鳴らしたときの画面は見ていない**（未検証）。起動して落ちないことだけ
   確かめた
 - 本物の Y8SQ（コンパイラか変換器の出力）で OPL3・OPM・OPNA・OPNB を鳴らしていない（未検証）。
   まだ書き出すものが無い。試しに組み立てたブロックで CLI を通しただけ
+
+### エミュレータを2本にして残っているもの
+
+- **DSAemuEngine の ADPCM は、止まったあとに直流を残す**（**確認済み**、測った）。
+  プレイヤーの試験では、再生中に `07h` に RESET を書いて止めたあと、+0.0028（16 ビットで
+  約 92）が 2 秒後も出続けた（音量 `12h` は `17h`。書き込みを記録して確かめた）。
+  **上流の emu8950 に由来するので、DSA の側で issue を出す**（利用者の決定、2026-10-03）。
+  プレイヤーでは回避しない
+  - **上流の emu8950 単体で再現した**（**確認済み**：`c27078c`、公開 API だけのプログラム。
+    クロック 3.579545MHz、レート変換なし、FM はキーオンしない）。RAM の 1024 バイトを
+    8000Hz・音量 `FFh`・リピート無しで鳴らすと、終端に達して EOS が立ち PCM-BSY が落ちた
+    あとも、`OPL_calc` が最後の値を返し続ける。値は「最後に復号した2サンプルの和 × 音量
+    ÷ 8192」で、上限は ±2040（フルスケールの 6.2%）。データ `33h`×4・`CCh`×4 の繰り返しで
+    −2040、`77h` の繰り返しで +2039、音量 `80h` なら −1024。終端で 0 に戻るデータ（前半
+    `00h`、後半 `88h`）では 0。同じデータを 0.1 秒で RESET すると +745 が残り、このとき
+    PCM-BSY も立ったままになる。`12h` を 0 にするか SP-OFF を立てると 0 になり、戻すとまた
+    出る。`OPL_reset` で消える
+  - 上流の `develop` と `1.2.0` の `emuadpcm.c` は、止める処理と出力の計算が main と同じ
+    （ステートの保存と復元が足されただけ。差分を見た）。同じ件の issue は上流に無い
+    （2026-10-03 に一覧を見た。3件とも別件）
+  - DSAemuEngine `815c42a` の DLL でも、`Y8950`（上流のコアそのまま）と `OPL2EX`（フォーク）が
+    同じ値で張り付く（−0.0625 / +0.0624）。同じ書き込みを YMEngine `ac29207` の `Y8950`
+    （ymfm）にすると、終端でも RESET でも 0 に戻る（**確認済み**）
+  - ほかのエミュレータの作り（コードを読んだ）：ymfm `81aec25` は終端で累算値を 0 にする。
+    openMSX `25179d6b8` は再生中でなければ 0 を返す。blueMSX の `Ymdeltat.c`（MAME の
+    ymdeltat 由来）は終端で出力を 0 にする。**実機の Y8950 が止まったあと何を出すかは未確認**
+  - プレイヤーへの影響は、レベルメーターの OPL2EX の帯に小さな値が残ることと、WAV の余韻の
+    判定（16 ビットの 1 LSB まで無音）が ADPCM で終わる曲では最長の 5 秒まで伸びうること
+    （**推測**：直流の大きさと `src/cli/main.cpp` の判定から。曲で書き出してはいない）
+  - 再現プログラムと出力は `build/adpcm-repro/` に作った（リポジトリには入れていない）
+- **音の大きさが変わった**（**確認済み**、測った）。chips_test の単音で、OPL2EX が −6.0 dB、
+  OPLLEX が −3.3 dB。ADPCM も約半分（render_test の 0.094 → 0.047）。SSGS は変わらない
+  （EPSGemuEngine と同じ 0.088）。DCSG・SCC はもともと DSAemuEngine。手元の3曲（OPLLEX の
+  メロディとリズム）は −4.8〜−8.4 dB で、曲によって違う。ブロック間の比（下）が決まっていない
+  ので、プレイヤーでは補正していない
+- **OPLLEX の音色データの CC BY-SA の表示が、配布 zip に入っていない。** DSAemuEngine の
+  OPLLEX のプリセット音色は "Copyright free OPLL(x) ROM patches"（CC BY-SA）で、DSAemuEngine の
+  README は出典の表示を求めている。`licenses/` には DSAemuEngine の LICENSE（MIT）しか入らない。
+  Y8960emu も同じデータを持っていたので、v0.1.4 の zip も同じ状態（**確認済み**：zip の中の
+  テキストに "CC BY"・"Copyright free OPLL"・"plgDavid" が無いことを検索した）。表示の文面を
+  どこから取るかを利用者に聞く
+- **Linux と macOS で DSAemuEngine の Y8960 のチップをビルドしていない**（未検証）
+- **GUI で鳴ることは見ていない**（未検証）。曲を引数に渡して起動し、6 秒落ちないことだけを
+  見た。GUI はエンジンを開けなくても画面に "No sound" を出して動き続けるので、これはエンジンが
+  開けた証拠にならない。開く経路（`PlaybackEngine::open`）は CLI と同じで、CLI では開けている
 
 ### ブロック間の音量比
 
@@ -404,6 +482,46 @@ ROM イメージをそのまま Z80 エミュレータで走らせ、I/O ポー�
 
 ## 進捗
 
+- 2026-10-03: **ADPCM の直流を、上流の emu8950 単体で再現した**（利用者の依頼「issue に使う
+  実測のデータと再現手順をまとめる」）。結果は上の未決事項「止まったあとに直流を残す」
+  - 前日の記録の「サンプルを最後まで鳴らし」は誤りだった。プレイヤーの試験の ADPCM は
+    音程が低く（O4 の C と E）、サンプルの終端より前に RESET で止まっていた。ドライバの
+    書き込みを割り込みの番号つきで記録して分かった。上流の再現では、終端に達する場合と
+    再生中に RESET する場合の両方を測った
+  - 副産物：同じ書き込みで、ymfm の ADPCM の振幅は emu8950 の2倍（0.124 と 0.0625）。
+    未決事項「音の大きさが変わった」の ADPCM の半分はこれ
+- 2026-10-02: **エミュレータを DSAemuEngine（`815c42a`）と YMEngine（`ac29207`）の2本にし、
+  ADPCM メモリを `FmEngine_SetMemoryEx` の RAM 割り当てで共有するようにした**（利用者の指示）。
+  決めたことは上の「エミュレータは…実行時に読み込む」と「ADPCM メモリの共有」
+  - 試験：全14本が通る（**確認済み**、Debug 構成）。render_test を3か所直した
+    - 区切り方の検査：前は「OPLLEX と OPL2EX の音の境目に谷が3つ」で見ていたが、DSAemuEngine は
+      書き込みをその場で反映するので OPL2EX には谷ができず（KEY ON がその時点のレベルからの
+      アタック）、OPLLEX は境目によって谷が2つに割れた。区切り方を変えた波形どうしが一致する
+      ことで見る形に改め、谷は OPL3 だけで数える。谷が無くなったのは、Y8960emu が同じ生成の中で
+      約 2ms の間を作っていたのに対し、DSAemuEngine の書き込みは間を置かないため。実機で谷が
+      できるかは**未確認**（実機で同じ書き込みを鳴らして録れば決まる）。YM3812 の KEY ON が
+      その時点のレベルからアタックするなら、Z80 が KEY OFF と KEY ON を書く数十 µs の間では
+      谷はできない（**推測**：YM3812 の振る舞いの一般的な知識から）
+    - 半波サインの検査：DSAemuEngine の OPL2EX は出力の極性が ymfm と逆で、負の側だけに出た
+      （最小 -0.0058、最大 0.0002）。どちらの側かを問わない形に改めた
+    - ADPCM がメモリを読む検査を OPL2EX の2回路とも見るようにし、高さの検査に OPLLEX と OPL2EX を
+      足した
+  - 壊して確かめたこと（**確認済み**）：開いたときの中身の写しをエンジンに渡す（複製するエンジンを
+    模す）と OPL2EX ×2・OPNA・OPNB のメモリの検査が落ち、OPL2EX1 だけ割り当てないとその1件が落ち、
+    WSE を立てないと半波サインが落ち、OPLLEX のクロックを倍にすると高さが落ちた。**`Player` の
+    溜め込み（割り込み1回ぶんをまとめて作る）を外しても、区切り方の検査は落ちなかった。**
+    YMEngine `ac29207` は保留した KEY ON を次の生成の呼び出しに持ち越すので、区切り方の影響を
+    受けない（区切り 1 でも OPL3 の谷は3つ）。今の2本では溜め込みは要らないが、1回の生成の中で
+    間を作るエンジンへの備えとして残した
+  - 高さ（**確認済み**）：O4 A が OPLLEX 439.99Hz、OPL2EX 439.98Hz、OPL3 439.98Hz、OPM 439.94Hz、
+    OPNA 440.10Hz、OPNB 439.96Hz。前の未決事項「OPL 族の高さが 0.56% 高い」（Y8960emu と前の
+    YMEngine で 442.48Hz）は、エンジンを替えて無くなった。原因は調べていない
+  - 手元の3曲を変更前後の CLI で WAV に書き出して比べた。余韻の判定で切れる位置が 0.13〜0.21 秒
+    早くなり、音は小さくなった（上の未決事項「音の大きさが変わった」）
+  - YMEngine は `7fad830` で LICENSE を持った（前の未決事項）。配布スクリプトの ymfm のライセンス
+    文は YMEngine のものにした（Y8960emu のものと同じ中身であることを比べた）
+  - **やっていないこと**：配布 zip を作る（**未検証**）。Release 構成での試験。GUI で鳴らすこと。
+    Linux・macOS。ADPCM や SSGS を使う実際の `.SQ` を鳴らすこと（手元に無い）
 - 2026-10-02: **Y8SQ 形式の `366d821` に追従した**（ROM の依頼文 `doc/prompt-pc-tools.md`）。
   決めたことは上の「`366d821` への追従」
   - 試験：`devices_test` に ROM の依頼文の「確かめるときの値」（OPL2EX の加算の音色と `Y` の

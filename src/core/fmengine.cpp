@@ -19,13 +19,15 @@ bool bind(const DynamicLibrary& lib, const char* name, Fn& out, std::string& err
 
 bool FmEngineLibrary::open(const std::filesystem::path& path, std::string& error) {
     if (!lib_.open(path, error)) return false;
-    bool ok = bind(lib_, "FmEngine_Create",    create,    error) &&
-              bind(lib_, "FmEngine_Destroy",   destroy,   error) &&
-              bind(lib_, "FmEngine_AddChip",   addChip,   error) &&
-              bind(lib_, "FmEngine_Write",     write,     error) &&
-              bind(lib_, "FmEngine_SetGain",   setGain,   error) &&
-              bind(lib_, "FmEngine_SetMemory", setMemory, error) &&
-              bind(lib_, "FmEngine_Generate",  generate,  error);
+    // FmEngine_SetMemoryEx は仕様では任意のエクスポートだが、ADPCM メモリを複数の
+    // チップで共有するのに要る（Y8960Chips::open）。無いライブラリは受け付けない。
+    bool ok = bind(lib_, "FmEngine_Create",      create,      error) &&
+              bind(lib_, "FmEngine_Destroy",     destroy,     error) &&
+              bind(lib_, "FmEngine_AddChip",     addChip,     error) &&
+              bind(lib_, "FmEngine_Write",       write,       error) &&
+              bind(lib_, "FmEngine_SetGain",     setGain,     error) &&
+              bind(lib_, "FmEngine_SetMemoryEx", setMemoryEx, error) &&
+              bind(lib_, "FmEngine_Generate",    generate,    error);
     if (!ok) lib_.close();
     return ok;
 }
@@ -53,8 +55,9 @@ bool FmEngine::addChip(const char* name, uint32_t clock, uint32_t& outId, std::s
     return true;
 }
 
-bool FmEngine::setMemory(uint32_t chipId, FmEngineMemory type, const uint8_t* data, uint32_t size) {
-    return lib_->setMemory(handle_, chipId, type, data, size) == kFmOk;
+bool FmEngine::setMemoryEx(uint32_t chipId, FmEngineMemory type, uint32_t base,
+                           uint8_t* data, uint32_t size, FmEngineAccess access) {
+    return lib_->setMemoryEx(handle_, chipId, type, base, data, size, access) == kFmOk;
 }
 
 } // namespace y8960

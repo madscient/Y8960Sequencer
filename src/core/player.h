@@ -33,9 +33,9 @@ private:
     InterruptHandler& handler_;
     InterruptClock    clock_;
     // 割り込みの間隔1回ぶんを、呼び出し側が求める量によらず一度に作ってためる。
-    // エミュレータは同じ tick の KEY OFF → KEY ON を見せるために、1回の生成の中で
-    // 間に数 ms を作る。生成が割り込みの直後で細かく切れると、その分が作れず
-    // KEY OFF が消える。リアルタイム再生では求める量が負荷で揺れる。
+    // 同じ tick の KEY OFF → KEY ON を見せるために1回の生成の中で間に数 ms を作る
+    // エンジンだと、生成が割り込みの直後で細かく切れたときにその分が作れず、KEY OFF が
+    // 消える。リアルタイム再生では求める量が負荷で揺れる。
     std::vector<float> bufL_, bufR_;
     size_t            pos_ = 0;
 };

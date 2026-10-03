@@ -51,7 +51,7 @@ endif()
 
 if(Y8960_EMULATOR_DIR)
     set(_emu_files "")
-    foreach(_name Y8960emuEngine EPSGemuEngine DSAemuEngine YMFMEngine)
+    foreach(_name DSAemuEngine YMFMEngine)
         file(GLOB _found
             "${Y8960_EMULATOR_DIR}/${_name}.dll"
             "${Y8960_EMULATOR_DIR}/lib${_name}.so"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Windows 版の配布 zip を作る。
 
-4つのエミュレータとこのリポジトリを、CRT を静的リンクした Release でビルドし、
+2つのエミュレータとこのリポジトリを、CRT を静的リンクした Release でビルドし、
 実行ファイル・ライブラリ・ライセンス文を1つの zip にまとめる。
 
     python tools/package_windows.py v0.1.0
@@ -18,13 +18,10 @@ import sys
 import zipfile
 from pathlib import Path
 
-EMULATORS = ["Y8960emu", "EPSGemuEngine", "DSAemuEngine", "YMEngine"]
-LIBRARIES = ["Y8960emuEngine.dll", "EPSGemuEngine.dll", "DSAemuEngine.dll", "YMFMEngine.dll"]
+EMULATORS = ["DSAemuEngine", "YMEngine"]
+LIBRARIES = ["DSAemuEngine.dll", "YMFMEngine.dll"]
 THIRD_PARTY = [
-    ("Y8960emu", "extern/ymfm/LICENSE", "ymfm.txt"),
-    ("EPSGemuEngine", "extern/ay8910/LICENSE", "ay8910.txt"),
-    ("EPSGemuEngine", "extern/mpeg_audio/LICENSE", "mpeg_audio.txt"),
-    ("EPSGemuEngine", "extern/ymz280b/LICENSE", "ymz280b.txt"),
+    ("YMEngine", "extern/ymfm/LICENSE", "ymfm.txt"),
     ("DSAemuEngine", "extern/emu2149/LICENSE", "emu2149.txt"),
     ("DSAemuEngine", "extern/emu2212/LICENSE", "emu2212.txt"),
     ("DSAemuEngine", "extern/emu2413/LICENSE", "emu2413.txt"),

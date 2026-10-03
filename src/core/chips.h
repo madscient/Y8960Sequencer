@@ -1,6 +1,6 @@
 #pragma once
 // デバイス 0-7（Y8960 の音源ブロック8つ）と 8-11（OPL3・OPM・OPNA・OPNB）を、
-// 4本のエミュレータに振り分ける。
+// 2本のエミュレータに振り分ける。
 // ブロックごとにエンジンを1つ持つ ―― 出力を別々に取り出せると、ブロックごとの
 // 音量とレベルメーターがそこから出せる。
 
@@ -34,7 +34,7 @@ public:
     Y8960Chips(const Y8960Chips&) = delete;
     Y8960Chips& operator=(const Y8960Chips&) = delete;
 
-    // libraryDir から4本のライブラリを読み、12 のデバイスを作る。
+    // libraryDir から2本のライブラリを読み、12 のデバイスを作る。
     bool open(const std::filesystem::path& libraryDir, uint32_t sampleRate, std::string& error);
 
     void write(Device chip, uint8_t reg, uint8_t value, uint8_t port = 0) override;
@@ -43,6 +43,7 @@ public:
     // ADPCM-B が同じ中身を見る ―― ボイスファイル番号はデバイスを区別しない
     // （bytecode.md「ブロック」のチャンク 03）。
     // 256KB を超えた分は捨て、足りない分は 0 で埋める。鳴らし始める前に呼ぶこと。
+    // エンジンはこのメモリをその場で読むので、render と同時に呼ばないこと。
     void loadAdpcmMemory(const std::vector<uint8_t>& image);
 
     void render(float* outL, float* outR, uint32_t samples);
@@ -57,17 +58,18 @@ public:
     float takeLevel(Device chip);
 
     // ライブラリの探す名前（拡張子と接頭辞の付かない形）。doc/plan.md の表と同じ。
-    static const std::array<const char*, 4>& libraryBaseNames();
+    static const std::array<const char*, 2>& libraryBaseNames();
 
 private:
-    // ライブラリはエンジンより先に宣言する。エンジンの破棄に関数ポインタが要る。
-    std::array<FmEngineLibrary, 4> libraries_;
+    // ライブラリと ADPCM メモリはエンジンより先に宣言し、エンジンより後に壊す。
+    // エンジンの破棄に関数ポインタが要り、エンジンは壊れるまで ADPCM メモリを指す。
+    std::array<FmEngineLibrary, 2> libraries_;
+    std::vector<uint8_t> adpcm_;
     std::array<FmEngine, kDeviceCount> engines_;
     std::array<uint32_t, kDeviceCount> chipIds_{};
     std::array<std::atomic<float>, kDeviceCount> levels_{};
     std::array<std::atomic<float>, kDeviceCount> gains_{};
 
-    std::vector<uint8_t> adpcm_;
     std::vector<float>   tmpL_;
     std::vector<float>   tmpR_;
 };
