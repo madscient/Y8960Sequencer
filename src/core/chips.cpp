@@ -45,6 +45,11 @@ constexpr Spec kSpecs[kDeviceCount] = {
 // ADPCM-B を持ち、ボイスファイルのメモリを見るもの。
 constexpr Device kAdpcmBChips[] = {Device::OPL2EX1, Device::OPL2EX2, Device::OPNA, Device::OPNB};
 
+// そのメモリの、エンジンでの名前。OPNA と OPNB のものは FmEngineApi の仕様の表にあり、
+// OPNA では RAM モード（ctrl2 の bit0 が 0）のメモリを指す。ドライバも RAM モードで
+// 鳴らす（dev_opn.cpp）。OPL2EX は表に無く、DSAemuEngine が決めた名前。
+constexpr char kAdpcmBMemory[] = "ADPCM_B";
+
 } // namespace
 
 const std::array<const char*, 2>& Y8960Chips::libraryBaseNames() {
@@ -77,13 +82,11 @@ bool Y8960Chips::open(const std::filesystem::path& libraryDir, uint32_t sampleRa
     // 同じブロックを RAM として割り当てると、エンジンは複製せずにその場で読むので、
     // 共有メモリになる。ROM として割り当てるとエンジンは複製してよく、あとで
     // loadAdpcmMemory で写した中身が見えるとは限らない。
-    // OPNA の FM_MEM_ADPCM_B は RAM モード（ctrl2 の bit0 が 0）のメモリで、ドライバも
-    // RAM モードで鳴らす（dev_opn.cpp）。
     adpcm_.assign(kAdpcmMemorySize, 0);
     for (Device d : kAdpcmBChips) {
         const size_t index = static_cast<size_t>(d);
-        if (!engines_[index].setMemoryEx(chipIds_[index], kFmMemAdpcmB, 0, adpcm_.data(), kAdpcmMemorySize,
-                                         kFmAccessRam)) {
+        if (!engines_[index].setMemoryEx(chipIds_[index], kAdpcmBMemory, 0, adpcm_.data(), kAdpcmMemorySize,
+                                         FM_ACCESS_RAM)) {
             error = "cannot share the ADPCM memory";
             return false;
         }

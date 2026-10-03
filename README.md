@@ -120,9 +120,9 @@ zip には入っている。
 | [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | SSGS、OPLLEX、OPL2EX、DCSG、SCC | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
 | [YMEngine](https://github.com/madscient/YMEngine) | OPL3、OPM、OPNA、OPNB | `YMFMEngine.dll` | `libYMFMEngine.so` | `libYMFMEngine.dylib` |
 
-どちらも、ADPCM メモリを共有するための外部メモリの割り当て（FmEngineApi の
-`FmEngine_SetMemoryEx`）に対応した版が要る。対応していない版を置くと、起動時にその旨を
-出して止まる。
+どちらも、FmEngineApi の外部メモリを名前で指定する版で、ADPCM メモリを共有するための
+外部メモリの割り当て（`FmEngine_SetMemoryEx`）に対応したものが要る。そうでない版を置くと、
+起動時に足りない関数の名前を出して止まる。
 
 ## ビルド
 

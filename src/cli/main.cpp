@@ -50,7 +50,7 @@ struct Options {
 constexpr double kTailMaxSeconds  = 5.0;
 constexpr double kSilentSeconds   = 0.5;
 // 16bit の 1 LSB までは無音とみなす。DSAemuEngine の SCC は、キーオフのあとも
-// 1 LSB ほどの一定値を出し続けるため（0f5c786 で測った）。
+// 1 LSB ほどの一定値を出し続けるため（59f51d1 で測った）。
 constexpr float  kSilentAmplitude = 1.5f / 32768.0f;
 // 終わらない曲の保険。
 constexpr double kWavMaxSeconds   = 30.0 * 60.0;
