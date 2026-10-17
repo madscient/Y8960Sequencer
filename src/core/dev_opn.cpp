@@ -91,9 +91,11 @@ constexpr uint8_t kBDram8   = 0x02;
 constexpr uint8_t kBRefNote = 64;      // O5 E。録音した速さで鳴る音（OPL2EX と同じ）
 
 uint8_t panBits(uint8_t value) {
-    if (value < 4)  return kPanL;
-    if (value < 12) return kPanLR;
-    return kPanR;
+    switch (panSide(value)) {
+    case PanSide::Left:  return kPanL;
+    case PanSide::Right: return kPanR;
+    default:             return kPanLR;
+    }
 }
 
 class OpnDevice final : public SoundDevice {

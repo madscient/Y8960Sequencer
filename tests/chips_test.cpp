@@ -1,4 +1,4 @@
-// 12 のデバイスそれぞれに、レジスタを直接書いて 440Hz 付近の音を出させ、鳴ることを見る。
+// 8 つのデバイスそれぞれに、レジスタを直接書いて 440Hz 付近の音を出させ、鳴ることを見る。
 // エミュレータのライブラリが実行ファイルと同じフォルダに要る。
 
 #include "chips.h"
@@ -26,6 +26,23 @@ double rms(Y8960Chips& chips, uint32_t samples) {
     return std::sqrt(sum / samples);
 }
 
+struct StereoRms {
+    double l = 0, r = 0;
+};
+
+StereoRms stereoRms(Y8960Chips& chips, uint32_t samples) {
+    std::vector<float> l(samples), r(samples);
+    chips.render(l.data(), r.data(), samples);
+    StereoRms out;
+    for (uint32_t i = 0; i < samples; ++i) {
+        out.l += double(l[i]) * l[i];
+        out.r += double(r[i]) * r[i];
+    }
+    out.l = std::sqrt(out.l / samples);
+    out.r = std::sqrt(out.r / samples);
+    return out;
+}
+
 void opllNote(Y8960Chips& c, Device d, bool on) {
     c.write(d, 0x30, 0x10);                  // 楽器 1、減衰 0
     c.write(d, 0x10, 0x22);                  // F-Number 290、ブロック 4
@@ -40,12 +57,6 @@ void opl2Note(Y8960Chips& c, Device d, bool on) {
     c.write(d, 0xC0, 0x01);
     c.write(d, 0xA0, 0x44);                  // F-Number 580、ブロック 4
     c.write(d, 0xB0, on ? 0x32 : 0x12);
-}
-
-void dcsgNote(Y8960Chips& c, Device d, bool on) {
-    c.write(d, 0, 0x8E);                     // 分周値 254
-    c.write(d, 0, 0x0F);
-    c.write(d, 0, on ? 0x90 : 0x9F);
 }
 
 void sccNote(Y8960Chips& c, bool on) {
@@ -119,12 +130,13 @@ void opnSsgNote(Y8960Chips& c, Device d, bool on) {
     c.write(d, 0x08, on ? 0x0F : 0x00);
 }
 
-void ssgsNote(Y8960Chips& c, bool on) {
-    c.write(Device::SSGS, 0x00, 0xFE);       // TP = 254
-    c.write(Device::SSGS, 0x01, 0x00);
-    c.write(Device::SSGS, 0x07, 0x3E);
-    c.write(Device::SSGS, 0x10, 0x08);
-    c.write(Device::SSGS, 0x08, on ? 0x0F : 0x00);
+// set 0 は 00h から、set 1 は 10h からの SSG。どちらも A チャンネル。
+void ssgsNote(Y8960Chips& c, uint8_t set, bool on) {
+    const uint8_t base = static_cast<uint8_t>(set * 0x10);
+    c.write(Device::SSGS, base + 0x00, 0x7F);       // TP = 127（SSG の動作クロック 1.79MHz で 880Hz）
+    c.write(Device::SSGS, base + 0x01, 0x00);
+    c.write(Device::SSGS, base + 0x07, 0x3E);
+    c.write(Device::SSGS, base + 0x08, on ? 0x0F : 0x00);
 }
 
 } // namespace
@@ -143,13 +155,10 @@ int main() {
 
     using Note = std::function<void(bool)>;
     const std::vector<std::pair<const char*, Note>> notes = {
-        {"SSGS",    [&](bool on) { ssgsNote(chips, on); }},
-        {"OPLLEX1", [&](bool on) { opllNote(chips, Device::OPLLEX1, on); }},
-        {"OPLLEX2", [&](bool on) { opllNote(chips, Device::OPLLEX2, on); }},
-        {"OPL2EX1", [&](bool on) { opl2Note(chips, Device::OPL2EX1, on); }},
-        {"OPL2EX2", [&](bool on) { opl2Note(chips, Device::OPL2EX2, on); }},
-        {"DCSG1",   [&](bool on) { dcsgNote(chips, Device::DCSG1, on); }},
-        {"DCSG2",   [&](bool on) { dcsgNote(chips, Device::DCSG2, on); }},
+        {"SSGS 1",  [&](bool on) { ssgsNote(chips, 0, on); }},
+        {"SSGS 2",  [&](bool on) { ssgsNote(chips, 1, on); }},
+        {"OPLLEX",  [&](bool on) { opllNote(chips, Device::OPLLEX, on); }},
+        {"OPL2EX",  [&](bool on) { opl2Note(chips, Device::OPL2EX, on); }},
         {"SCC",     [&](bool on) { sccNote(chips, on); }},
         {"OPL3 p0", [&](bool on) { opl3Note(chips, 0, false, on); }},
         {"OPL3 p1", [&](bool on) { opl3Note(chips, 1, false, on); }},
@@ -169,8 +178,34 @@ int main() {
         rms(chips, kRate / 2);               // 余韻を出し切る
         const double off = rms(chips, kRate / 10);
         std::printf("%-8s on rms=%.5f  off rms=%.5f\n", n.first, on, off);
-        CHECK(on > 0.01);
+        // SSGS・OPLLEX・OPL2EX は定位を書かなければ中央で、片側は 1/√2 になる。
+        CHECK(on > 0.005);
         CHECK(off < on * 0.1);
+    }
+
+    // SSGS のブロックのレジスタ。第1セット A の音量は 20h、定位は 28h、第2セット A は 24h と 2Ch。
+    for (uint8_t set = 0; set < 2; ++set) {
+        const uint8_t gain = static_cast<uint8_t>(0x20 + set * 4);
+        const uint8_t pan  = static_cast<uint8_t>(0x28 + set * 4);
+        ssgsNote(chips, set, true);
+        const StereoRms centre = stereoRms(chips, kRate / 5);
+        chips.write(Device::SSGS, pan, 1);                 // 左端
+        const StereoRms left = stereoRms(chips, kRate / 5);
+        chips.write(Device::SSGS, gain, 64);               // 線形で半分
+        const StereoRms half = stereoRms(chips, kRate / 5);
+        chips.write(Device::SSGS, gain, 0);
+        const StereoRms zero = stereoRms(chips, kRate / 5);
+        chips.write(Device::SSGS, gain, 128);
+        chips.write(Device::SSGS, pan, 128);
+        ssgsNote(chips, set, false);
+        rms(chips, kRate / 2);
+        std::printf("SSGS %u   centre L=%.4f R=%.4f  left L=%.4f R=%.4f  gain 64 L=%.4f  gain 0 L=%.5f\n",
+                    set + 1, centre.l, centre.r, left.l, left.r, half.l, zero.l);
+        CHECK(std::fabs(centre.l - centre.r) < centre.l * 0.01);
+        CHECK(left.r < left.l * 0.01);
+        CHECK(std::fabs(left.l / centre.l - std::sqrt(2.0)) < 0.05);
+        CHECK(std::fabs(half.l / left.l - 0.5) < 0.05);
+        CHECK(zero.l < left.l * 0.01);
     }
 
     return check::finish("chips_test");

@@ -1,4 +1,4 @@
-// Y8SQ 形式（bytecode.md）が定めるデバイス 0-7 の読み方とデバイス 8-11 を、
+// Y8SQ 形式（bytecode.md）が定めるデバイス 0-3 の読み方とデバイス 8-11 を、
 // ドライバが書くレジスタで見る。
 // 期待値は bytecode.md の表と、ymfm のレジスタの定義から手で出したもの。
 
@@ -137,9 +137,9 @@ int main() {
         Rig r;
         SequenceBlock b;
         b.voices[0] = packedFm();
-        addTrack(b, 0, Device::OPLLEX1, 0, {0x85, 0, 0x00, 24, 0x82, 0xD2, 0x00, 24});
+        addTrack(b, 0, Device::OPLLEX, 0, {0x85, 0, 0x00, 24, 0x82, 0xD2, 0x00, 24});
         r.play(b, 2 * kEighth);
-        const Device d = Device::OPLLEX1;
+        const Device d = Device::OPLLEX;
         CHECK(r.bus.last(d, 0x00) == 0xE5);
         CHECK(r.bus.last(d, 0x01) == 0x31);
         CHECK(r.bus.last(d, 0x02) == 0x9A);
@@ -163,9 +163,9 @@ int main() {
         Rig r;
         SequenceBlock b;
         b.voices[0] = packedFm();
-        addTrack(b, 0, Device::OPL2EX1, 1, {0x85, 0, 0x00, 24});
+        addTrack(b, 0, Device::OPL2EX, 1, {0x85, 0, 0x00, 24});
         r.play(b, kEighth);
-        const Device d = Device::OPL2EX1;
+        const Device d = Device::OPL2EX;
         CHECK(r.bus.last(d, 0xC1) == 0x0B);
         CHECK(r.bus.last(d, 0x21) == 0xE5);
         CHECK(r.bus.last(d, 0x41) == (0x80 | (0x1A + 28)));   // 接続が加算なのでモジュレータにも
@@ -180,15 +180,101 @@ int main() {
         CHECK(keyOns.size() == 1 && keyOns.front() == oplPitch(true, 60, 0).block);
     }
 
-    // SSGS の定位は `87`。`B1` はもう何もしない。
+    // SSGS の定位は `87` の 0-255 をそのまま 28h-2Ah・2Ch-2Eh へ。`B1` はもう何もしない。
+    // 第2セットの音のレジスタは 10h から。
     {
         Rig r;
         SequenceBlock b;
         addTrack(b, 0, Device::SSGS, 0, {0xB1, 5, 0x87, 3, 0x00, 24});
-        addTrack(b, 1, Device::SSGS, 4, {0x87, 12, 0x00, 24});
+        addTrack(b, 1, Device::SSGS, 4, {0x87, 200, 0x00, 24});
         r.play(b, kEighth);
-        CHECK(r.bus.values(Device::SSGS, 0x10) == (std::vector<uint8_t>{8, 3}));   // リセットの中央と `87`
-        CHECK(r.bus.last(Device::SSGS, 0x31) == 12);
+        CHECK(r.bus.values(Device::SSGS, 0x28) == (std::vector<uint8_t>{128, 3}));   // リセットの中央と `87`
+        CHECK(r.bus.values(Device::SSGS, 0x2D) == (std::vector<uint8_t>{128, 200}));
+        CHECK(r.bus.values(Device::SSGS, 0x2E) == (std::vector<uint8_t>{128}));
+        CHECK(r.bus.last(Device::SSGS, 0x12) == (divPitch(Device::SSGS, 48, 0).divisor & 0xFF));   // ch4 の音程
+        CHECK(r.bus.count(Device::SSGS, 0x19, 8) >= 1);    // ch4 のレベル（V8）
+        CHECK(r.bus.values(Device::SSGS, 0x10) == (std::vector<uint8_t>{0}));      // ch3 はリセットだけ
+    }
+
+    // SSGS の `B4` はチャンネルの音量レジスタ（20h-22h・24h-26h）へそのまま。リセットと周の頭で 128。
+    {
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::SSGS, 0, {0xB4, 64, 0x00, 24});
+        addTrack(b, 1, Device::SSGS, 5, {0xB4, 0, 0x00, 24});
+        r.play(b, 3 * kEighth, 2);
+        const auto g = r.bus.values(Device::SSGS, 0x20);
+        CHECK(g.size() >= 5 && std::vector<uint8_t>(g.begin(), g.begin() + 5) ==
+                                   (std::vector<uint8_t>{128, 128, 64, 128, 64}));
+        CHECK(r.bus.count(Device::SSGS, 0x26, 0) == 2);
+        CHECK(r.bus.values(Device::SSGS, 0x21) == (std::vector<uint8_t>{128}));   // トラックの無いチャンネルはリセットだけ
+    }
+
+    // SSGS の `Y`：第2セットは 10h-1Dh、ブロックのレジスタは 20h-2Eh。GPIO（0Eh 0Fh 1Eh 1Fh）と
+    // 組の4つ目（23h など）は断る。ブロックのレジスタもマスク付きで書ける。
+    {
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::SSGS, 0, {0xE0, 0x1D, 0x05, 0x00, 0xE0, 0x2E, 0x40, 0x00,
+                                         0xE0, 0x2E, 0x01, 0xFE, 0xE0, 0x1F, 0x0F, 0x00,
+                                         0xE0, 0x1E, 0x0F, 0x00, 0xE0, 0x23, 0x11, 0x00,
+                                         0xE0, 0x0E, 0x22, 0x00, 0x0E, 2});
+        r.play(b, 2);
+        CHECK(r.bus.last(Device::SSGS, 0x1D) == 0x05);
+        CHECK(r.bus.values(Device::SSGS, 0x2E) == (std::vector<uint8_t>{128, 0x40, 0x41}));
+        CHECK(r.bus.last(Device::SSGS, 0x1F) == -1);
+        CHECK(r.bus.last(Device::SSGS, 0x1E) == -1);
+        CHECK(r.bus.last(Device::SSGS, 0x23) == -1);
+        CHECK(r.bus.last(Device::SSGS, 0x0E) == -1);
+    }
+
+    // OPLLEX の定位は 50h+ch。リズムチャンネルは自分の定位を持たず、56h-58h の3本に同じ値。
+    // リセットで中央 128。
+    {
+        Rig r;
+        SequenceBlock b;
+        b.rhythmMode[static_cast<size_t>(Device::OPLLEX)] = true;
+        addTrack(b, 0, Device::OPLLEX, 3, {0x87, 40, 0x0E, 24});
+        addTrack(b, 1, Device::OPLLEX, kChannelRhythm, {0x87, 200, 0x0E, 24});
+        r.play(b, 2);
+        CHECK(r.bus.values(Device::OPLLEX, 0x53) == (std::vector<uint8_t>{128, 40}));
+        for (uint8_t reg = 0x56; reg <= 0x58; ++reg) {
+            CHECK(r.bus.values(Device::OPLLEX, reg) == (std::vector<uint8_t>{128, 200}));
+        }
+        CHECK(r.bus.values(Device::OPLLEX, 0x50) == (std::vector<uint8_t>{128}));
+    }
+
+    // OPL2EX の定位は F6h+ch、ADPCM は FFh、リズムチャンネルは FCh-FEh の3本。リセットで 128。
+    {
+        Rig r;
+        SequenceBlock b;
+        b.rhythmMode[static_cast<size_t>(Device::OPL2EX)] = true;
+        addTrack(b, 0, Device::OPL2EX, 2, {0x87, 1, 0x0E, 24});
+        addTrack(b, 1, Device::OPL2EX, kChannelAdpcm, {0x87, 255, 0x0E, 24});
+        addTrack(b, 2, Device::OPL2EX, kChannelRhythm, {0x87, 0, 0x0E, 24});
+        r.play(b, 2);
+        CHECK(r.bus.values(Device::OPL2EX, 0xF8) == (std::vector<uint8_t>{128, 1}));
+        CHECK(r.bus.values(Device::OPL2EX, 0xFF) == (std::vector<uint8_t>{128, 255}));
+        for (uint8_t reg = 0xFC; reg <= 0xFE; ++reg) {
+            CHECK(r.bus.values(Device::OPL2EX, reg) == (std::vector<uint8_t>{128, 0}));
+        }
+        CHECK(r.bus.values(Device::OPL2EX, 0xF6) == (std::vector<uint8_t>{128}));
+    }
+
+    // 左右しか選べないチップの丸め：0 は両方、1-64 は左、65-191 は両方、192-255 は右。
+    {
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::OPM, 0, {0x87, 0, 0x87, 1, 0x87, 64, 0x87, 65, 0x87, 191, 0x87, 192,
+                                        0x87, 255, 0x0E, 24});
+        r.play(b, 2);
+        const auto v = r.bus.values(Device::OPM, 0x20);
+        const std::vector<uint8_t> want = {0xC0, 0x40, 0x40, 0xC0, 0xC0, 0x80, 0x80};
+        std::vector<uint8_t> got;
+        for (size_t i = v.size() >= want.size() ? v.size() - want.size() : 0; i < v.size(); ++i) {
+            got.push_back(static_cast<uint8_t>(v[i] & 0xC0));
+        }
+        CHECK(got == want);
     }
 
     // SCC の `B3`。0 は表を通さず、周の頭で表に戻る。
@@ -286,8 +372,8 @@ int main() {
         Rig r;
         SequenceBlock b;
         b.rhythmMode[static_cast<size_t>(Device::OPL3)] = true;
-        addTrack(b, 0, Device::OPL3, kOpl3Rhythm, {0x87, 0, 0xC8, 0x10, 24});
-        addTrack(b, 1, Device::OPL3, 3, {0xE0, 0xC3, 0xF0, 0x00, 0x87, 15, 0x00, 24});
+        addTrack(b, 0, Device::OPL3, kOpl3Rhythm, {0x87, 1, 0xC8, 0x10, 24});
+        addTrack(b, 1, Device::OPL3, 3, {0xE0, 0xC3, 0xF0, 0x00, 0x87, 255, 0x00, 24});
         r.play(b, 4);
         const Device d = Device::OPL3;
         CHECK((r.bus.last(d, 0xBD) & 0x30) == 0x30);    // リズムモードとバスドラム
@@ -302,7 +388,7 @@ int main() {
         SequenceBlock b;
         b.deviceVoices[0][0] = opnVoice(0xAC, 0x23, 0xF0);   // NE・FB 5・AL 4
         b.voices[0] = packedFm();                            // 共有の集合は見ない
-        addTrack(b, 0, Device::OPM, 7, {0x85, 0, 0x80, 4, 0x09, 24, 0xD0, 50, 0, 0x87, 15});
+        addTrack(b, 0, Device::OPM, 7, {0x85, 0, 0x80, 4, 0x09, 24, 0xD0, 50, 0, 0x87, 255});
         r.play(b, 2 * kEighth);
         const Device d = Device::OPM;
         CHECK(r.bus.values(d, 0x27).size() >= 2);
@@ -395,7 +481,7 @@ int main() {
         Rig r;
         SequenceBlock b;
         addTrack(b, 0, Device::OPNA, kOpnRhythm, {0xA9, 20, 0xD8, 0x04, 29, 0xD8, 0x20, 2, 0xAA, 30,
-                                                  0xAB, 40, 0xA8, 0x01, 0xC8, 0x05, 24, 0x87, 0});
+                                                  0xAB, 40, 0xA8, 0x01, 0xC8, 0x05, 24, 0x87, 1});
         r.play(b, kEighth + 2);
         const Device d = Device::OPNA;
         CHECK(r.bus.last(d, 0x10) == 0x05);
@@ -473,10 +559,10 @@ int main() {
         v.data[2] = 0x06;              // モジュレータの 40h
         v.data[7] = 0x19;              // キャリアの 40h
         b.voices[0] = v;
-        addTrack(b, 0, Device::OPL2EX1, 0, {0x85, 0, 0x81, 96, 0x00, 24});
+        addTrack(b, 0, Device::OPL2EX, 0, {0x85, 0, 0x81, 96, 0x00, 24});
         r.play(b, 4);
-        CHECK(r.bus.last(Device::OPL2EX1, 0x40) == 0x25);
-        CHECK(r.bus.last(Device::OPL2EX1, 0x43) == 0x38);
+        CHECK(r.bus.last(Device::OPL2EX, 0x40) == 0x25);
+        CHECK(r.bus.last(Device::OPL2EX, 0x43) == 0x38);
     }
     {
         // OPL2EX：`Y` で接続を立てると、次の V からモジュレータにも効く。
@@ -487,23 +573,21 @@ int main() {
         v.data[2] = 0x0E;
         v.data[7] = 0x00;
         b.voices[0] = v;
-        addTrack(b, 0, Device::OPL2EX1, 1, {0x85, 0, 0xE0, 0xC1, 0x01, 0xFE, 0x81, 96, 0x00, 24});
+        addTrack(b, 0, Device::OPL2EX, 1, {0x85, 0, 0xE0, 0xC1, 0x01, 0xFE, 0x81, 96, 0x00, 24});
         r.play(b, 4);
-        CHECK(r.bus.last(Device::OPL2EX1, 0xC1) == 0x0B);
-        CHECK(r.bus.last(Device::OPL2EX1, 0x41) == 0x2D);
-        CHECK(r.bus.last(Device::OPL2EX1, 0x44) == 0x1F);
+        CHECK(r.bus.last(Device::OPL2EX, 0xC1) == 0x0B);
+        CHECK(r.bus.last(Device::OPL2EX, 0x41) == 0x2D);
+        CHECK(r.bus.last(Device::OPL2EX, 0x44) == 0x1F);
     }
     {
         // 4 ビットのチップ：@V99 は段 8（減衰 7）。SCC は段 8 を表で 2 に。
         Rig r;
         SequenceBlock b;
-        addTrack(b, 0, Device::OPLLEX1, 0, {0x82, 0x01, 0x81, 99, 0x00, 24});
-        addTrack(b, 1, Device::DCSG1, 0, {0x81, 99, 0x00, 24});
+        addTrack(b, 0, Device::OPLLEX, 0, {0x82, 0x01, 0x81, 99, 0x00, 24});
         addTrack(b, 2, Device::SCC, 0, {0x81, 99, 0x00, 24});
         addTrack(b, 3, Device::SSGS, 0, {0x81, 96, 0x00, 24});   // 31 下げは 4 で割って 7 段
         r.play(b, 4);
-        CHECK((r.bus.last(Device::OPLLEX1, 0x30) & 0x0F) == 7);
-        CHECK(r.bus.count(Device::DCSG1, 0, 0x80 | 0x10 | 7) >= 1);
+        CHECK((r.bus.last(Device::OPLLEX, 0x30) & 0x0F) == 7);
         CHECK(r.bus.last(Device::SCC, 0x8A) == 2);
         CHECK(r.bus.last(Device::SSGS, 0x08) == 8);
     }
@@ -513,10 +597,10 @@ int main() {
                               std::pair<int, int>{67, 0x01}}) {
             Rig r;
             SequenceBlock b;
-            addTrack(b, 0, Device::OPL2EX1, kChannelAdpcm, {0x81, static_cast<uint8_t>(c.first), 0x0E, 24});
+            addTrack(b, 0, Device::OPL2EX, kChannelAdpcm, {0x81, static_cast<uint8_t>(c.first), 0x0E, 24});
             addTrack(b, 1, Device::OPNA, kOpnAdpcmB, {0x81, static_cast<uint8_t>(c.first), 0x0E, 24});
             r.play(b, 2);
-            CHECK(r.bus.last(Device::OPL2EX1, 0x12) == c.second);
+            CHECK(r.bus.last(Device::OPL2EX, 0x12) == c.second);
             CHECK(r.bus.last(Device::OPNA, 0x0B, 1) == c.second);
         }
     }
@@ -542,14 +626,14 @@ int main() {
         Rig r;
         SequenceBlock b;
         b.masterVolume = 96;
-        b.rhythmMode[static_cast<size_t>(Device::OPLLEX2)] = true;
-        addTrack(b, 0, Device::OPLLEX1, 0, {0x82, 0x01, 0x81, 127, 0x00, 24});
-        addTrack(b, 1, Device::OPLLEX1, 1, {0x82, 0x01, 0x00, 24});
-        addTrack(b, 2, Device::OPLLEX2, kChannelRhythm, {0xA9, 10, 0xA8, 0, 0xC8, 0x10, 24});
+        b.rhythmMode[static_cast<size_t>(Device::OPLLEX)] = true;
+        addTrack(b, 0, Device::OPLLEX, 0, {0x82, 0x01, 0x81, 127, 0x00, 24});
+        addTrack(b, 1, Device::OPLLEX, 1, {0x82, 0x01, 0x00, 24});
+        addTrack(b, 2, Device::OPLLEX, kChannelRhythm, {0xA9, 10, 0xA8, 0, 0xC8, 0x10, 24});
         r.play(b, 4);
-        CHECK((r.bus.last(Device::OPLLEX1, 0x30) & 0x0F) == 7);
-        CHECK((r.bus.last(Device::OPLLEX1, 0x31) & 0x0F) == 14);
-        CHECK((r.bus.last(Device::OPLLEX2, 0x36) & 0x0F) == 12);
+        CHECK((r.bus.last(Device::OPLLEX, 0x30) & 0x0F) == 7);
+        CHECK((r.bus.last(Device::OPLLEX, 0x31) & 0x0F) == 14);
+        CHECK((r.bus.last(Device::OPLLEX, 0x36) & 0x0F) == 12);
     }
 
     // `AB`：OPNB は ADPCM-A の 01h（port 1）へ、0-63 をそのまま。

@@ -42,6 +42,7 @@ struct Options {
     std::optional<fs::path> adpcm;
     y8960::TickRate tick = y8960::TickRate::Hz200;
     std::vector<y8960::MuteSpec> mutes;
+    y8960::MixerLevels mixer;
     std::optional<fs::path> wav;
     uint8_t repeat = 1;          // `MSTART` のリピート回数と同じ。0 は無限
 };
@@ -57,17 +58,18 @@ constexpr double kWavMaxSeconds   = 30.0 * 60.0;
 
 void printUsage() {
     std::fputs("usage: y8960player <sequence file> [--adpcm <Y8PC file>] [--tick <0-2>]\n"
-               "                   [--repeat <0-255>] [--mute <spec>]... [--wav <output file>]\n"
+               "                   [--repeat <0-255>] [--mute <spec>]... [--mixer <levels>]\n"
+               "                   [--wav <output file>]\n"
                "  --tick    interrupt rate that drives playback, as CALL MINIT:\n"
                "            0 = about 60Hz, 1 = about 100Hz, 2 = about 200Hz (default 2)\n"
                "  --repeat  times to play the song, as CALL MSTART; 0 = endless (default 1)\n"
                "  --mute    silence a part; may be given more than once\n"
-               "              <chip>[,<channel>]  chip: SSGS OPLLEX1 OPLLEX2 OPL2EX1 OPL2EX2"
-               " DCSG1 DCSG2 SCC\n"
-               "                                  OPL3 OPM OPNA OPNB\n"
+               "              <chip>[,<channel>]  chip: SSGS OPLLEX OPL2EX SCC OPL3 OPM OPNA OPNB\n"
                "              T<number>           track 0-15\n"
                "              A-P                 track 0-15 as a letter\n"
                "            prefix with ! to silence everything else\n"
+               "  --mixer   block levels, as CALL MIXER: <master>,<SSGS>,<OPLLEX>,<OPL2EX>,<SCC>\n"
+               "            each 0-128; 128 is full, 0 is silent, linear between (default all 128)\n"
                "  --wav     write a WAV file (48000Hz, 16bit, stereo) instead of playing;\n"
                "            cannot be combined with --repeat 0\n", stderr);
 }
@@ -134,6 +136,16 @@ bool parseOptions(const std::vector<fs::path>& args, Options& opt) {
                 return false;
             }
             opt.mutes.push_back(spec);
+        } else if (a == "--mixer") {
+            if (i + 1 >= args.size()) {
+                std::fputs("--mixer needs five levels\n", stderr);
+                return false;
+            }
+            std::string why;
+            if (!y8960::parseMixer(args[++i].u8string(), opt.mixer, why)) {
+                std::fprintf(stderr, "--mixer: %s\n", why.c_str());
+                return false;
+            }
         } else if (a == "--wav") {
             if (i + 1 >= args.size()) {
                 std::fputs("--wav needs a file name\n", stderr);
@@ -182,6 +194,7 @@ int exportWav(const Options& opt, const y8960::SequenceBlock& block, const y8960
         return 1;
     }
     engine.setTrackMutes(y8960::resolveMutes(opt.mutes, block));
+    engine.setMixer(opt.mixer);
     engine.load(block, pcm);
 
     y8960::WavWriter wav;
@@ -294,6 +307,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         engine.setTrackMutes(y8960::resolveMutes(opt.mutes, block));
+        engine.setMixer(opt.mixer);
         engine.load(block, havePcm ? &pcm : nullptr);
         engine.play(opt.repeat);
         while (engine.playing()) SDL_Delay(20);

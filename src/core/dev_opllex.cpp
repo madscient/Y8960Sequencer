@@ -1,4 +1,4 @@
-// OPLLEX（YM2413 ＋ チャンネル独立プリセット音色バンク）。
+// OPLLEX（YM2413 ＋ チャンネル独立プリセット音色バンク ＋ チャンネルごとの定位）。
 // Y8960BasicExtension の src/dev/opllex.asm と src/dev/rhythm.asm の写し。
 
 #include "dev_internal.h"
@@ -16,8 +16,11 @@ constexpr uint8_t kRegFnumL  = 0x10;
 constexpr uint8_t kRegFnumH  = 0x20;
 constexpr uint8_t kRegInsVol = 0x30;
 constexpr uint8_t kRegBank   = 0x40;
+constexpr uint8_t kRegPan    = 0x50;   // 50h-58h。値は `87` そのもの
 constexpr uint8_t kRegRhyLvl = 0x36;   // 36h-38h
-constexpr uint8_t kRegCount  = 0x49;
+constexpr uint8_t kRegCount  = 0x59;
+constexpr uint8_t kPanCentre = 128;
+constexpr uint8_t kRhyFirst  = 6;
 constexpr uint8_t kKey       = 0x10;
 constexpr uint8_t kRhythmOn  = 0x20;
 constexpr uint8_t kVolMin    = 15;
@@ -42,7 +45,7 @@ constexpr uint8_t kRhythmPitch[][2] = {
 
 class OpllexDevice final : public SoundDevice {
 public:
-    OpllexDevice(ChipBus& bus, Device which) : bus_(bus), which_(which) {}
+    explicit OpllexDevice(ChipBus& bus) : bus_(bus) {}
 
     void reset() override {
         for (uint8_t r = kRegUser; r < kRegUser + 8; ++r) write(r, 0);
@@ -53,6 +56,8 @@ public:
             write(static_cast<uint8_t>(kRegFnumH + ch), 0);   // キーオフ、ブロック 0
             write(static_cast<uint8_t>(kRegBank + ch), 0);
             write(static_cast<uint8_t>(kRegInsVol + ch), kVolMin);
+            // 定位は周の頭で戻らないので、前の曲が寄せたままにしない。
+            write(static_cast<uint8_t>(kRegPan + ch), kPanCentre);
             fnh_[ch] = 0;
             insVol_[ch] = kVolMin;
             transpose_[ch] = 0;
@@ -146,6 +151,17 @@ public:
         selectInstrument(ch, 0);         // ユーザー音色は楽器 0
     }
 
+    // リズムチャンネルは自分の定位を持たない。5つの楽器は ch6-8 の定位で鳴るので、
+    // その3本に同じ値を書く。
+    void setPan(uint8_t ch, uint8_t value) override {
+        if (ch == kChannelRhythm) {
+            for (uint8_t c = kRhyFirst; c < kChannels; ++c) write(static_cast<uint8_t>(kRegPan + c), value);
+            return;
+        }
+        if (ch >= kChannels) return;
+        write(static_cast<uint8_t>(kRegPan + ch), value);
+    }
+
     void rhythmVolume(uint8_t target, uint8_t level) override {
         rhythm_.setLevel(target, level);
     }
@@ -181,7 +197,7 @@ public:
 private:
     void write(uint8_t reg, uint8_t value) {
         if (reg < kRegCount) shadow_[reg] = value;
-        bus_.write(which_, reg, value);
+        bus_.write(Device::OPLLEX, reg, value);
     }
 
     void selectInstrument(uint8_t ch, uint8_t instrument) {
@@ -206,7 +222,6 @@ private:
     }
 
     ChipBus& bus_;
-    Device   which_;
     std::array<uint8_t, kRegCount> shadow_{};
     std::array<uint8_t, kChannels> fnh_{};
     std::array<uint8_t, kChannels> insVol_{};
@@ -216,8 +231,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<SoundDevice> makeOpllexDevice(ChipBus& bus, Device which) {
-    return std::make_unique<OpllexDevice>(bus, which);
+std::unique_ptr<SoundDevice> makeOpllexDevice(ChipBus& bus) {
+    return std::make_unique<OpllexDevice>(bus);
 }
 
 } // namespace y8960

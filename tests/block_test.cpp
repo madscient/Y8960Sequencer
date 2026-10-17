@@ -69,14 +69,14 @@ int main() {
         CHECK(load(b, s, err));
         CHECK(s.version == 1);
         CHECK(s.tracks[0].assigned);
-        CHECK(s.tracks[0].device == Device::OPLLEX1);
+        CHECK(s.tracks[0].device == Device::OPLLEX);
         CHECK(s.tracks[0].events == (Bytes{0x00, 48, 0xFF}));
         CHECK(!s.tracks[1].assigned);
     }
 
     // BSAVE の見出しが付いた形。見出しの中身は読まない
     {
-        const Bytes raw = block({{0x00, track(3, 7, 4)}});
+        const Bytes raw = block({{0x00, track(3, 3, 4)}});
         Bytes b = {0xFE, 0x00, 0x80, 0xFF, 0x80, 0x00, 0x00};
         b.insert(b.end(), raw.begin(), raw.end());
         SequenceBlock s;
@@ -199,24 +199,26 @@ int main() {
     CHECK(loads(block({{0x00, track(0, 10, 10)}})));    // OPNA と OPNB は 0-10
     CHECK(!loads(block({{0x00, track(0, 11, 11)}})));
     CHECK(!loads(block({{0x00, track(0, 0, 6)}})));     // SSGS は 0-5
-    CHECK(!loads(block({{0x00, track(0, 7, 5)}})));     // SCC は 0-4
-    CHECK(!loads(block({{0x00, track(0, 5, 4)}})));     // DCSG は 0-3
+    CHECK(!loads(block({{0x00, track(0, 3, 5)}})));     // SCC は 0-4
     CHECK(!loads(block({{0x00, track(0, 1, 9)}})));     // OPLLEX に ADPCM は無い
-    CHECK(loads(block({{0x00, track(0, 3, 9)}})));      // OPL2EX の 9 はモードに依らない
+    CHECK(loads(block({{0x00, track(0, 2, 9)}})));      // OPL2EX の 9 はモードに依らない
     CHECK(!loads(block({{0x00, Bytes{0, 0, 0}}})));     // イベント列が空
 
     // 同じチャンネルを2本のトラックが持つ
-    CHECK(!loads(block({{0x00, track(0, 5, 1)}, {0x00, track(1, 5, 1)}})));
-    CHECK(loads(block({{0x00, track(0, 5, 1)}, {0x00, track(1, 6, 1)}})));
+    CHECK(!loads(block({{0x00, track(0, 0, 1)}, {0x00, track(1, 0, 1)}})));
+    CHECK(loads(block({{0x00, track(0, 0, 1)}, {0x00, track(1, 3, 1)}})));
 
-    // 鳴らさないデバイス（12 以上）のトラックは割り当てず、残りを読む
+    // 鳴らさないデバイス（チップの無い 4-7 と 12 以上）のトラックは割り当てず、残りを読む。
+    // チャンネル番号は見ない。
     {
         SequenceBlock s;
         std::string err;
-        CHECK(load(block({{0x00, track(0, 12, 99)}, {0x00, track(1, 255, 0)}, {0x00, track(2, 0, 0)}}), s, err));
+        CHECK(load(block({{0x00, track(0, 12, 99)}, {0x00, track(1, 255, 0)}, {0x00, track(2, 0, 0)},
+                          {0x00, track(3, 4, 0)}, {0x00, track(4, 7, 99)}}), s, err));
         CHECK(!s.tracks[0].assigned && !s.tracks[1].assigned);
         CHECK(s.tracks[2].assigned);
-        CHECK(s.warnings.size() == 2);
+        CHECK(!s.tracks[3].assigned && !s.tracks[4].assigned);
+        CHECK(s.warnings.size() == 4);
     }
 
     // 排他のチャンネル。OPL3 のリズムと 6-8、4OP と組の 2OP
@@ -253,11 +255,12 @@ int main() {
         CHECK(s.seqVoice(Device::OPM, 0) == &s.deviceVoices[0][0]);
         CHECK(s.seqVoice(Device::OPNA, 0) == nullptr);
         CHECK(s.seqVoice(Device::OPNB, 31) == &s.deviceVoices[2][31]);
-        CHECK(s.seqVoice(Device::OPLLEX1, 0) == &s.voices[0]);
+        CHECK(s.seqVoice(Device::OPLLEX, 0) == &s.voices[0]);
         CHECK(s.seqVoice(Device::OPL3, 0) == &s.voices[0]);
         CHECK(s.seqVoice(Device::SCC, 1) == nullptr);
     }
     CHECK(!loads(block({{0x40, owned(3, 0, 32)}})));    // デバイス 0-8 は名指せない
+    CHECK(!loads(block({{0x40, owned(5, 0, 32)}})));    // チップの無い 4-7 も ROM の読み手と同じく拒む
     CHECK(!loads(block({{0x40, owned(8, 0, 32)}})));
     CHECK(!loads(block({{0x40, owned(9, 32, 32)}})));   // 索引は 0-31
     CHECK(!loads(block({{0x40, owned(9, 0, 31)}})));
@@ -318,12 +321,11 @@ int main() {
 
     // リズムモードの推定
     {
-        const Bytes b = block({{0x00, track(0, 2, 10)}, {0x00, track(1, 4, 7)}});
+        const Bytes b = block({{0x00, track(0, 2, 10)}, {0x00, track(1, 1, 7)}});
         SequenceBlock s;
         std::string err;
         CHECK(load(b, s, err));
         CHECK(s.rhythmMode[2]);
-        CHECK(!s.rhythmMode[4]);
         CHECK(!s.rhythmMode[1]);
     }
     CHECK(!loads(block({{0x00, track(0, 1, 10)}, {0x00, track(1, 1, 6)}})));

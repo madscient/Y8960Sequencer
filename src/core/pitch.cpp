@@ -11,7 +11,6 @@ constexpr int kOpllShift = 3;              // OPLL の 9 ビットまで下げ�
 constexpr int kOpl2Shift = 2;              // OPL2 は 1 ビット広い
 
 constexpr uint16_t kSsgDivMax  = 4095;
-constexpr uint16_t kDcsgDivMax = 1023;
 constexpr uint16_t kSccDivMax  = 4096;     // レジスタは 1 少ない値を持つ
 
 // 表はどのオクターブでも同じなので、索引が表から出たぶんはオクターブが動く。
@@ -74,9 +73,7 @@ DivPitch divPitch(Device device, uint8_t note, int16_t bendSteps) {
     const int index = foldIndex(octave, semitone * kFreqSemitone + bendSteps);
     const uint32_t stored = freqEntry(FreqFamily::Div, index);
 
-    const uint16_t max = (device == Device::SSGS)  ? kSsgDivMax
-                       : (device == Device::SCC)   ? kSccDivMax
-                                                   : kDcsgDivMax;
+    const uint16_t max = (device == Device::SCC) ? kSccDivMax : kSsgDivMax;
     DivPitch out;
     if (octave < -1) {
         // 表の 1 オクターブ下より低い。分周値はもう出せないので下端で鳴らす。

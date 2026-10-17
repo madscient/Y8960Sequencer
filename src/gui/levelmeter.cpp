@@ -37,13 +37,12 @@ constexpr ImU32 kRedLit    = IM_COL32(235,  70,  60, 255);
 constexpr ImU32 kRedDim    = IM_COL32( 58,  22,  20, 255);
 
 const char* const kBandNames[kDeviceCount] = {
-    "SSGS", "OPLLEX 1", "OPLLEX 2", "OPL2EX 1", "OPL2EX 2", "DCSG 1", "DCSG 2", "SCC",
+    "SSGS", "OPLLEX", "OPL2EX", "SCC", nullptr, nullptr, nullptr, nullptr,
     "OPL3", "OPM", "OPNA", "OPNB",
 };
 
 // SSGS は2つの SSG からできているので、セット番号とその中の名前で呼ぶ。
 const char* const kSsgsLabels[6]  = {"1A", "1B", "1C", "2A", "2B", "2C"};
-const char* const kDcsgLabels[4]  = {"1", "2", "3", "N"};
 const char* const kNumberLabels[18] = {"1", "2", "3", "4", "5", "6", "7", "8", "9",
                                        "10", "11", "12", "13", "14", "15", "16", "17", "18"};
 // OPL3 の 4OP のチャンネル 18-23。
@@ -65,8 +64,6 @@ const char* slotLabel(Device device, uint8_t slot) {
     if (isAdpcmChannel(device, slot)) return "PCM";
     switch (device) {
     case Device::SSGS:  return kSsgsLabels[slot];
-    case Device::DCSG1:
-    case Device::DCSG2: return kDcsgLabels[slot];
     case Device::OPL3:  return (slot >= kOpl3FourOpFirst) ? kQuadLabels[slot - kOpl3FourOpFirst] : kNumberLabels[slot];
     case Device::OPNA:
     case Device::OPNB:  return (slot >= kOpnSsgFirst) ? kOpnSsgLabels[slot - kOpnSsgFirst] : kNumberLabels[slot];
@@ -102,8 +99,8 @@ void LevelMeter::update(const PlaybackEngine& engine, const SequenceBlock& block
     bandUsed_.fill(false);
     for (auto& row : slotUsed_) row.fill(false);
     if (showAll) {
-        for (size_t d = 0; d < kDeviceCount; ++d) {
-            const Device device = static_cast<Device>(d);
+        for (Device device : kDevices) {
+            const size_t d = static_cast<size_t>(device);
             bandUsed_[d] = true;
             for (uint8_t c = 0; c < kMaxChannels; ++c) {
                 if (channelExists(device, c) && !isRhythmChannel(device, c)) slotUsed_[d][c] = true;
@@ -172,11 +169,7 @@ uint16_t MuteState::trackMask(const SequenceBlock& block) const {
     return mask;
 }
 
-float gainFromDb(float db) {
-    return (db <= kGainDbMin) ? 0.0f : std::pow(10.0f, db / 20.0f);
-}
-
-bool LevelMeter::draw(MuteState& mutes, std::array<float, kDeviceCount>& gainDb) const {
+bool LevelMeter::draw(MuteState& mutes, std::array<int, kDeviceCount>& levels) const {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float segH = (kBarHeight - kSegGap * (kSegments - 1)) / kSegments;
     bool changed = false;
@@ -189,18 +182,14 @@ bool LevelMeter::draw(MuteState& mutes, std::array<float, kDeviceCount>& gainDb)
         ImGui::SeparatorText(kBandNames[d]);
         const ImVec2 band = ImGui::GetCursorScreenPos();
 
-        // 下端は -inf（0 倍）として扱う。右クリックで 0 dB に戻す。
-        float& db = gainDb[d];
-        ImGui::VSliderFloat("##gain", ImVec2(kLeverWidth, kBarHeight), &db, kGainDbMin, kGainDbMax,
-                            (db <= kGainDbMin) ? "-inf" : "%+.0f", ImGuiSliderFlags_AlwaysClamp);
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) db = 0.0f;
+        // 右クリックで最大（素通し）に戻す。
+        int& level = levels[d];
+        ImGui::VSliderInt("##level", ImVec2(kLeverWidth, kBarHeight), &level, 0, kMixerLevelMax, "%d",
+                          ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) level = kMixerLevelMax;
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s gain (dB). Right-click to reset.", kBandNames[d]);
+            ImGui::SetTooltip("%s level (0-128, linear). Right-click to reset.", kBandNames[d]);
         }
-        const char* unit = "dB";
-        const ImVec2 unitSize = ImGui::CalcTextSize(unit);
-        dl->AddText(ImVec2(band.x + (kLeverWidth - unitSize.x) * 0.5f, band.y + kBarHeight + 2.0f),
-                    IM_COL32(200, 200, 200, 255), unit);
 
         const ImVec2 origin(band.x + kLeverWidth + kLeverGap, band.y);
 

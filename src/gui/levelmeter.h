@@ -9,17 +9,13 @@
 
 #include "activity.h"
 #include "block.h"
+#include "mixer.h"
 
 #include <array>
 
 namespace y8960 {
 
 class PlaybackEngine;
-
-// 画面のチップ音量のレバーの範囲。下端は -inf（0 倍）として扱う。
-constexpr float kGainDbMin = -40.0f;
-constexpr float kGainDbMax = 6.0f;
-float gainFromDb(float db);
 
 // 画面で選んだミュート。チップ単位と、チャンネル単位（リズムはリズムチャンネルの1本）。
 struct MuteState {
@@ -42,8 +38,8 @@ public:
                 bool showAll, float now);
     // 帯の見出しのチェックボックスでチップを、バーのクリックでチャンネルを
     // ミュートする。ミュートが変わったら true を返す。
-    // 帯の左の縦のレバーでチップの音量（dB）を変える。
-    bool draw(MuteState& mutes, std::array<float, kDeviceCount>& gainDb) const;
+    // 帯の左の縦のレバーでチップの音量（0-128、CALL MIXER の目盛り）を変える。
+    bool draw(MuteState& mutes, std::array<int, kDeviceCount>& levels) const;
 
 private:
     struct Bar {

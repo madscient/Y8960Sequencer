@@ -33,9 +33,11 @@ constexpr uint8_t kTlMax     = 127;
 constexpr uint8_t kOpOffset[4] = {0, 16, 8, 24};
 
 uint8_t panBits(uint8_t value) {
-    if (value < 4)  return kPanL;
-    if (value < 12) return kPanLR;
-    return kPanR;
+    switch (panSide(value)) {
+    case PanSide::Left:  return kPanL;
+    case PanSide::Right: return kPanR;
+    default:             return kPanLR;
+    }
 }
 
 class OpmDevice final : public SoundDevice {

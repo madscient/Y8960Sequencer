@@ -50,8 +50,7 @@ uint16_t readLe16(const uint8_t* p) {
 
 // リズムチャンネルと排他になる 6-8 を持つデバイス。
 bool isOplFamily(Device d) {
-    return d == Device::OPLLEX1 || d == Device::OPLLEX2 ||
-           d == Device::OPL2EX1 || d == Device::OPL2EX2 || d == Device::OPL3;
+    return d == Device::OPLLEX || d == Device::OPL2EX || d == Device::OPL3;
 }
 
 std::string hex2(unsigned v) {
@@ -111,12 +110,8 @@ void readMeta(const uint8_t* p, size_t len, SequenceBlock& out) {
 bool channelExists(Device device, unsigned channel) {
     switch (device) {
     case Device::SSGS:    return channel < 6;
-    case Device::OPLLEX1:
-    case Device::OPLLEX2: return channel <= 8 || channel == kChannelRhythm;
-    case Device::OPL2EX1:
-    case Device::OPL2EX2: return channel <= kChannelRhythm;
-    case Device::DCSG1:
-    case Device::DCSG2:   return channel < 4;
+    case Device::OPLLEX:  return channel <= 8 || channel == kChannelRhythm;
+    case Device::OPL2EX:  return channel <= kChannelRhythm;
     case Device::SCC:     return channel < 5;
     case Device::OPL3:    return channel <= kOpl3Rhythm;
     case Device::OPM:     return channel < 8;
@@ -128,10 +123,8 @@ bool channelExists(Device device, unsigned channel) {
 
 int rhythmChannel(Device device) {
     switch (device) {
-    case Device::OPLLEX1:
-    case Device::OPLLEX2:
-    case Device::OPL2EX1:
-    case Device::OPL2EX2: return kChannelRhythm;
+    case Device::OPLLEX:
+    case Device::OPL2EX:  return kChannelRhythm;
     case Device::OPL3:    return kOpl3Rhythm;
     case Device::OPNA:
     case Device::OPNB:    return kOpnRhythm;
@@ -150,8 +143,7 @@ int rhythmInstruments(Device device) {
 
 bool isAdpcmChannel(Device device, uint8_t channel) {
     switch (device) {
-    case Device::OPL2EX1:
-    case Device::OPL2EX2: return channel == kChannelAdpcm;
+    case Device::OPL2EX:  return channel == kChannelAdpcm;
     case Device::OPNA:
     case Device::OPNB:    return channel == kOpnAdpcmB;
     default:              return false;
@@ -239,9 +231,9 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 return false;
             }
             // 鳴らさないデバイスのトラックは割り当てず、残りを鳴らす（bytecode.md
-            // 「版と、知らないものに出会ったとき」）。形式がまだ名前を付けていない
-            // 番号も同じ扱い。
-            if (dev >= kDeviceCount) {
+            // 「版と、知らないものに出会ったとき」）。チップの無い 4-7 と、形式がまだ
+            // 名前を付けていない番号も同じ扱い。
+            if (!isPlayedDevice(dev)) {
                 out.warnings.push_back("track " + std::to_string(trackNo) + ": device " +
                                        std::to_string(dev) + " is not played");
                 continue;
@@ -321,6 +313,7 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 return false;
             }
             const uint8_t dev = p[0];
+            // 4-7 は鳴らさないが、ROM の読み手と同じく下で拒む。
             if (dev >= kDeviceCount) continue;
             const Device device = static_cast<Device>(dev);
             if (type == kChunkOpnVoice) {
@@ -342,7 +335,7 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
             } else if (type == kChunkAdpcmA) {
                 // ADPCM-A を持つのは OPNB だけ。ほかのデバイス 8-10 のものは鳴るものを
                 // 変えないので受け取って捨てる。デバイス 0-7 のものは ROM の読み手と
-                // 同じく拒む。
+                // 同じく拒む（形式は拒んでも読み飛ばしてもよいとする）。
                 if (dev < static_cast<uint8_t>(Device::OPL3)) {
                     error = "chunk 41h names device " + std::to_string(dev);
                     return false;
@@ -402,8 +395,8 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
         used[d] |= bit;
     }
     constexpr uint32_t kCh68 = 0x1C0;
-    for (int d = 0; d < kDeviceCount; ++d) {
-        const Device device = static_cast<Device>(d);
+    for (Device device : kDevices) {
+        const int d = static_cast<int>(device);
         if (!isOplFamily(device)) continue;
         const int rc = rhythmChannel(device);
         const bool rhythm = (used[d] >> rc) & 1;

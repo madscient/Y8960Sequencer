@@ -35,6 +35,7 @@ constexpr uint8_t kEvRhyTotal  = 0xAB;
 constexpr uint8_t kEvSsgShape  = 0xB0;
 constexpr uint8_t kEvEnvelope  = 0xB2;
 constexpr uint8_t kEvSccTable  = 0xB3;
+constexpr uint8_t kEvChanGain  = 0xB4;
 constexpr uint8_t kEvNoteAbs   = 0xC0;
 constexpr uint8_t kEvRhythm    = 0xC8;
 constexpr uint8_t kEvBend      = 0xD0;
@@ -393,6 +394,7 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
         case kEvRhyTotal:  device(t).rhythmTotal(arg); break;
         case kEvSsgShape:  device(t).ssgEnv(SsgEnv::Shape, t.channel, arg); break;
         case kEvSccTable:  device(t).setVolumeTable(t.channel, arg == kSccTableOn); break;
+        case kEvChanGain:  device(t).setChannelGain(t.channel, arg); break;
         case kEvEnvelope: {
             // ブロックに無い番号は中身が 0 のものとして選ぶ。ROM も写していない枠を
             // 0 として読む。鳴り方は保証されていない。

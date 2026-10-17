@@ -6,8 +6,9 @@ namespace y8960 {
 
 namespace {
 
+// 4-7 はチップが無いので名前も無い。
 const char* const kSymbols[kDeviceCount] = {
-    "SSGS", "OPLLEX1", "OPLLEX2", "OPL2EX1", "OPL2EX2", "DCSG1", "DCSG2", "SCC",
+    "SSGS", "OPLLEX", "OPL2EX", "SCC", nullptr, nullptr, nullptr, nullptr,
     "OPL3", "OPM", "OPNA", "OPNB",
 };
 
@@ -62,8 +63,8 @@ bool parseMuteSpec(const std::string& text, MuteSpec& out, std::string& error) {
     const size_t comma = s.find(',');
     const std::string chip = s.substr(0, comma);
     int found = -1;
-    for (int d = 0; d < kDeviceCount; ++d) {
-        if (chip == kSymbols[d]) found = d;
+    for (Device d : kDevices) {
+        if (chip == kSymbols[static_cast<size_t>(d)]) found = static_cast<int>(d);
     }
     if (found < 0) {
         error = "unknown mute spec: " + text;

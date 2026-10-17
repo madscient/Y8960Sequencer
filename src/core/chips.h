@@ -1,5 +1,5 @@
 #pragma once
-// デバイス 0-7（Y8960 の音源ブロック8つ）と 8-11（OPL3・OPM・OPNA・OPNB）を、
+// デバイス 0-3（Y8960 の音源ブロック4つ）と 8-11（OPL3・OPM・OPNA・OPNB）を、
 // 2本のエミュレータに振り分ける。
 // ブロックごとにエンジンを1つ持つ ―― 出力を別々に取り出せると、ブロックごとの
 // 音量とレベルメーターがそこから出せる。
@@ -17,7 +17,6 @@
 namespace y8960 {
 
 // ドライバがチップに書く口。チップの並びはデバイス番号と同じ。
-//   DCSG: reg は使わず、value が 1 バイトのシリアル書き込み
 //   SCC : reg は SCC のレジスタ窓の先頭からのオフセット
 //   port: 2組のレジスタを持つチップ（OPL3・OPNA・OPNB）の2組目が 1
 class ChipBus {
@@ -34,13 +33,13 @@ public:
     Y8960Chips(const Y8960Chips&) = delete;
     Y8960Chips& operator=(const Y8960Chips&) = delete;
 
-    // libraryDir から2本のライブラリを読み、12 のデバイスを作る。
+    // libraryDir から2本のライブラリを読み、8 つのデバイスを作る。
     bool open(const std::filesystem::path& libraryDir, uint32_t sampleRate, std::string& error);
 
     void write(Device chip, uint8_t reg, uint8_t value, uint8_t port = 0) override;
 
-    // ADPCM メモリに、アドレス 0 から写す。2回路の OPL2EX と、OPNA・OPNB の
-    // ADPCM-B が同じ中身を見る ―― ボイスファイル番号はデバイスを区別しない
+    // ADPCM メモリに、アドレス 0 から写す。OPL2EX と、OPNA・OPNB の ADPCM-B が
+    // 同じ中身を見る ―― ボイスファイル番号はデバイスを区別しない
     // （bytecode.md「ブロック」のチャンク 03）。
     // 256KB を超えた分は捨て、足りない分は 0 で埋める。鳴らし始める前に呼ぶこと。
     // エンジンはこのメモリをその場で読むので、render と同時に呼ばないこと。
@@ -48,10 +47,11 @@ public:
 
     void render(float* outL, float* outR, uint32_t samples);
 
-    // ブロックごとの音量。1.0 が素のまま。実機のデジタルミキサーのレジスタ仕様が
-    // 決まるまでの間に合わせ（doc/plan.md）。
+    // ブロックごとの音量（Digital Mixer）とマスターの音量。線形の利得で、1.0 が素のまま。
     void setGain(Device chip, float gain);
     float gain(Device chip) const;
+    void setMasterGain(float gain);
+    float masterGain() const;
 
     // 前に読んでからの、そのブロックの最大振幅。読むと 0 に戻る。
     // 音声のスレッドが書き、画面のスレッドが読む。
@@ -69,6 +69,7 @@ private:
     std::array<uint32_t, kDeviceCount> chipIds_{};
     std::array<std::atomic<float>, kDeviceCount> levels_{};
     std::array<std::atomic<float>, kDeviceCount> gains_{};
+    std::atomic<float> masterGain_{1.0f};
 
     std::vector<float>   tmpL_;
     std::vector<float>   tmpR_;

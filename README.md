@@ -6,9 +6,8 @@
 
 **開発中。** シーケンスデータを読んで鳴らせる。
 
-鳴らせる音源は、Y8960 の8つの音源ブロック（SSGS、OPLLEX ×2、OPL2EX ×2、DCSG ×2、
-SCC）と、Y8SQ 形式が表す OPL3・OPM・OPNA・OPNB。OPNB は YM2610B（FM 6 チャンネル）
-として鳴らす。
+鳴らせる音源は、Y8960 の4つの音源ブロック（SSGS、OPLLEX、OPL2EX、SCC）と、Y8SQ 形式が
+表す OPL3・OPM・OPNA・OPNB。OPNB は YM2610B（FM 6 チャンネル）として鳴らす。
 
 ## 使い方
 
@@ -16,7 +15,8 @@ SCC）と、Y8SQ 形式が表す OPL3・OPM・OPNA・OPNB。OPNB は YM2610B（F
 
 ```
 y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイル>] [--tick <0-2>]
-            [--repeat <0-255>] [--mute <指定>]... [--wav <出力ファイル>]
+            [--repeat <0-255>] [--mute <指定>]... [--mixer <音量>]
+            [--wav <出力ファイル>]
 ```
 
 `--tick` は演奏を進める割り込みの周期で、値の意味は `CALL MINIT` の分解能と
@@ -24,6 +24,12 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
 
 `--repeat` は曲を鳴らす回数で、値の意味は `CALL MSTART` のリピート回数と同じ。
 0 は終わらない（Ctrl+C で止める）。省略時は 1。
+
+`--mixer` はブロックごとの音量で、値の意味は `CALL MIXER` と同じ。
+`<マスター>,<SSGS>,<OPLLEX>,<OPL2EX>,<SCC>` の5つを、カンマで区切って書く（5つとも要る）。
+どれも 0-128 で、128 がそのまま、0 が無音、間は値に比例した振幅になる。OPL2EX の値は
+ADPCM にも掛かる。マスターは全部の音源に掛かる。省略時はすべて 128。OPL3・OPM・OPNA・OPNB
+はこの指定の対象外で、常にそのままの音量で鳴る。
 
 `--wav` を付けると、鳴らす代わりに WAV ファイルへ書き出す。48000Hz・16bit・
 ステレオの PCM。曲が終わったあとも、音が消えるまで（最長 5 秒）書く。
@@ -33,7 +39,7 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
 
 | 指定 | 黙るもの |
 |---|---|
-| `<チップ>` | そのチップのトラック全部。チップは `SSGS` `OPLLEX1` `OPLLEX2` `OPL2EX1` `OPL2EX2` `DCSG1` `DCSG2` `SCC` `OPL3` `OPM` `OPNA` `OPNB` |
+| `<チップ>` | そのチップのトラック全部。チップは `SSGS` `OPLLEX` `OPL2EX` `SCC` `OPL3` `OPM` `OPNA` `OPNB` |
 | `<チップ>,<CH番号>` | そのチャンネル。番号はシーケンスデータと同じ（下の表） |
 | `T<番号>` | トラック 0-15 |
 | `A`-`P` | トラック 0-15 を英字で（`A` がトラック 0） |
@@ -46,9 +52,8 @@ y8960player <シーケンスファイル> [--adpcm <ADPCM サンプルファイ�
 | チップ | CH番号 |
 |---|---|
 | `SSGS` | 0-5 |
-| `OPLLEX1` `OPLLEX2` | 0-8、10 がリズム |
-| `OPL2EX1` `OPL2EX2` | 0-8、9 が ADPCM、10 がリズム |
-| `DCSG1` `DCSG2` | 0-2 が矩形波、3 がノイズ |
+| `OPLLEX` | 0-8、10 がリズム |
+| `OPL2EX` | 0-8、9 が ADPCM、10 がリズム |
 | `SCC` | 0-4 |
 | `OPL3` | 0-17 が 2OP、18-23 が 4OP、24 がリズム |
 | `OPM` | 0-7 |
@@ -78,8 +83,9 @@ y8960gui [シーケンスファイルかフォルダ] [--adpcm <ADPCM サンプ�
   Ctrl+O（開く）
 - 音源ブロックごと・チャンネルごとのレベルメーターが出る。リズムチャンネルは楽器ごとに
   分かれる（OPNA・OPNB は6つ、ほかは5つ）。帯の `Mute` でチップを、バーのクリックで
-  チャンネルを黙らせる（リズムの楽器はリズムチャンネルの1本として黙る）。帯の左のレバーでチップごとの音量を -40 dB（一番下は
-  無音）から +6 dB まで変えられ、右クリックで 0 dB に戻る
+  チャンネルを黙らせる（リズムの楽器はリズムチャンネルの1本として黙る）。帯の左のレバーでチップごとの音量を
+  0-128 で変えられ（`--mixer` と同じ目盛り）、右クリックで 128 に戻る。`Master` のレバーは
+  全体の音量で、目盛りは同じ。どのレバーの値も保存しない
 - tick の周期は止まっているときに選べる
 - 引数で渡したファイルやフォルダはプレイリストに入れるだけで、鳴らさない
 
@@ -92,8 +98,8 @@ y8960gui [シーケンスファイルかフォルダ] [--adpcm <ADPCM サンプ�
   `--adpcm` のほうを使う**
 - 読めるのは Y8SQ 形式の版 01。FM の音色は 12 バイトのレジスタイメージで持つもの
   （Y8SQ 形式の現在の定め）で、それ以外の長さの音色を持つシーケンスは読まない
-- このプレイヤーが鳴らさないデバイス番号（12 以上）のトラックは、知らせてから飛ばし、
-  残りを鳴らす
+- Y8960 の音源ブロックのデバイス番号は SSGS 0、OPLLEX 1、OPL2EX 2、SCC 3。どのチップも
+  割り当てられていない 4-7 と、12 以上の番号のトラックは、知らせてから飛ばし、残りを鳴らす
 - シーケンスデータがメタ情報を持っていれば使う。マスターピッチ（A4 の周波数）は全部の音の
   高さに、マスターボリュームは全部のトラックの音量に効く。タイトルと作者名は、CLI が読み込んだ
   ときに出し、GUI はトラックの一覧の上に出す。マスターピッチは 1/64 半音の刻みに丸めて効かせる
@@ -117,12 +123,16 @@ zip には入っている。
 
 | ライブラリ | 鳴らす音源 | Windows | Linux | macOS |
 |---|---|---|---|---|
-| [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | SSGS、OPLLEX、OPL2EX、DCSG、SCC | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
+| [DSAemuEngine](https://github.com/madscient/DSAemuEngine) | SSGS、OPLLEX、OPL2EX、SCC | `DSAemuEngine.dll` | `libDSAemuEngine.so` | `libDSAemuEngine.dylib` |
 | [YMEngine](https://github.com/madscient/YMEngine) | OPL3、OPM、OPNA、OPNB | `YMFMEngine.dll` | `libYMFMEngine.so` | `libYMFMEngine.dylib` |
 
 どちらも、FmEngineApi の外部メモリを名前で指定する版で、ADPCM メモリを共有するための
 外部メモリの割り当て（`FmEngine_SetMemoryEx`）に対応したものが要る。そうでない版を置くと、
 起動時に足りない関数の名前を出して止まる。
+
+DSAemuEngine は、SSGS のチャンネルごとの音量と定位、OPLLEX と OPL2EX の定位を持つ版
+（2026-10-17 版のカートリッジに合わせたもの）が要る。それより前の版を置いても起動時には
+見分けられず、SSGS が1オクターブ高く鳴るなど、正しく鳴らない。
 
 ## ビルド
 

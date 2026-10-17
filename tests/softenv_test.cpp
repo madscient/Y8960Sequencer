@@ -69,12 +69,6 @@ bool ssgA(const seqtest::Write& w, uint8_t& v) {
     return true;
 }
 
-bool dcsg1Ch0(const seqtest::Write& w, uint8_t& v) {
-    if (w.chip != Device::DCSG1 || (w.value & 0xF0) != 0x90) return false;   // ch0 の減衰
-    v = static_cast<uint8_t>(15 - (w.value & 0x0F));
-    return true;
-}
-
 bool scc1(const seqtest::Write& w, uint8_t& v) {
     if (w.chip != Device::SCC || w.reg != kSccVol1) return false;
     v = w.value;
@@ -153,14 +147,9 @@ int main() {
         CHECK(silent == off + 23);
     }
 
-    // DCSG と SCC は `V12`。値から 3 を引いたものが出る。SCC はそれを表で直して書く。
+    // SCC は `V12`。値から 3 を引いたものを表で直して書く。
     {
         const auto want = concat({ramp(0, 12), seq({10, 8, 6, 5, 4, 3, 2, 1, 0})});
-        Run d;
-        play(d, withEnvelope(Device::DCSG1, 0, {0xB2, 1, 0x81, kV12, 0x00, 96, 0x0C, 192}),
-             TickRate::Vdp60, 200, dcsg1Ch0);
-        CHECK(same("DCSG V12", d.levels, want));
-
         // SCC の音量レジスタはキーが上でも V を持つので、ROM の試験と同じく許可ビットが
         // 立っているあいだだけを数える。
         Run s;

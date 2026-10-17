@@ -145,28 +145,6 @@ int main() {
         CHECK(near(bus.firstTick(Device::SSGS, kSsgVolA, 0, 0), kQuarterInterrupts / 2));
     }
 
-    // DCSG。減衰は反転して入り、キーオフで 15 になる。
-    {
-        RecordingBus bus;
-        DeviceSet devices(bus);
-        devices.resetAll();
-        Sequencer seq(devices, TickRate::Vdp60);
-        const SequenceBlock block = seqtest::oneTrack(Device::DCSG1, 0, {0x00, 48, 0x0C, 48});
-        seq.load(0, block);
-        bus.tick = 0;
-        seq.start(0, 1);
-        run(seq, bus, 80);
-
-        int attOn = 0, attOff = 0;
-        for (const auto& w : bus.writes) {
-            if (w.chip != Device::DCSG1) continue;
-            if (w.value == (0x80 | 0x10 | (15 - 8))) ++attOn;      // 音量 8 の減衰
-            if (w.value == (0x80 | 0x10 | 15)) ++attOff;           // 消音
-        }
-        CHECK(attOn >= 1);
-        CHECK(attOff >= 1);
-    }
-
     // SCC。`85` の波形がチャンネルの波形ブロックへ書かれる。
     {
         RecordingBus bus;
@@ -228,15 +206,15 @@ int main() {
         Sequencer seq(devices, TickRate::Vdp60);
         seq.setActivity(&activity);
         // A9（V=4）、AA（@A=15）、A8（バスドラムにアクセント）、C8（BD と SD を叩く）
-        const SequenceBlock block = seqtest::oneTrack(Device::OPLLEX1, kChannelRhythm,
+        const SequenceBlock block = seqtest::oneTrack(Device::OPLLEX, kChannelRhythm,
             {0xA9, 4, 0xAA, 15, 0xA8, 0x10, 0xC8, 0x18, 48});
         seq.load(0, block);
         bus.tick = 0;
         seq.start(0, 1);
 
-        const auto& bd = activity.read(Device::OPLLEX1, kRhythmSlotFirst);      // バスドラム
-        const auto& sd = activity.read(Device::OPLLEX1, kRhythmSlotFirst + 1);  // スネア
-        const auto& tom = activity.read(Device::OPLLEX1, kRhythmSlotFirst + 2);
+        const auto& bd = activity.read(Device::OPLLEX, kRhythmSlotFirst);      // バスドラム
+        const auto& sd = activity.read(Device::OPLLEX, kRhythmSlotFirst + 1);  // スネア
+        const auto& tom = activity.read(Device::OPLLEX, kRhythmSlotFirst + 2);
         CHECK(bd.noteOnSeq.load() == 1);
         CHECK(sd.noteOnSeq.load() == 1);
         CHECK(tom.noteOnSeq.load() == 0);               // 叩いていない楽器は動かない
@@ -263,7 +241,7 @@ int main() {
             {"bits 7-5",     {0xD8, 0x80, 5, 0xA8, 0x01}, 0x07, 0x07, 0x77},
         };
         for (const Case& c : cases) {
-            y8960::SequenceBlock block = seqtest::oneTrack(Device::OPLLEX1, kChannelRhythm, {});
+            y8960::SequenceBlock block = seqtest::oneTrack(Device::OPLLEX, kChannelRhythm, {});
             auto& ev = block.tracks[0].events;
             ev.clear();
             for (int e : c.events) ev.push_back(static_cast<uint8_t>(e));
@@ -275,9 +253,9 @@ int main() {
             seq.load(0, block);
             bus.tick = 0;
             seq.start(0, 1);
-            const auto v36 = bus.values(Device::OPLLEX1, 0x36);
-            const auto v37 = bus.values(Device::OPLLEX1, 0x37);
-            const auto v38 = bus.values(Device::OPLLEX1, 0x38);
+            const auto v36 = bus.values(Device::OPLLEX, 0x36);
+            const auto v37 = bus.values(Device::OPLLEX, 0x37);
+            const auto v38 = bus.values(Device::OPLLEX, 0x38);
             const bool ok = !v36.empty() && (v36.back() & 0x0F) == c.r36 && !v37.empty() && v37.back() == c.r37 &&
                             !v38.empty() && v38.back() == c.r38;
             if (!ok) {
@@ -289,7 +267,7 @@ int main() {
         }
 
         // OPL2EX は同じ減衰を TL に4倍して書く。BD 13（減衰 2）と HH 6（減衰 9）。
-        y8960::SequenceBlock block = seqtest::oneTrack(Device::OPL2EX1, kChannelRhythm,
+        y8960::SequenceBlock block = seqtest::oneTrack(Device::OPL2EX, kChannelRhythm,
             {0xA9, 10, 0xD8, 0x01, 6, 0xD8, 0x10, 13, 0xA8, 0x00, 0xC8, 0x11, 48});
         RecordingBus bus;
         DeviceSet devices(bus);
@@ -298,8 +276,8 @@ int main() {
         seq.load(0, block);
         bus.tick = 0;
         seq.start(0, 1);
-        const auto bd = bus.values(Device::OPL2EX1, 0x53);   // ch6 キャリア
-        const auto hh = bus.values(Device::OPL2EX1, 0x51);   // ch7 モジュレータ
+        const auto bd = bus.values(Device::OPL2EX, 0x53);   // ch6 キャリア
+        const auto hh = bus.values(Device::OPL2EX, 0x51);   // ch7 モジュレータ
         CHECK(!bd.empty() && (bd.back() & 0x3F) == 2 * 4);
         CHECK(!hh.empty() && (hh.back() & 0x3F) == 9 * 4);
     }

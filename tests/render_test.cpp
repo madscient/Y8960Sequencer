@@ -3,6 +3,8 @@
 
 #include "check.h"
 #include "chips.h"
+#include "mixer.h"
+#include "mute.h"
 #include "platform.h"
 #include "player.h"
 #include "sequencer.h"
@@ -130,9 +132,8 @@ int main() {
     const std::vector<uint8_t> sccPart = {0x85, 0x01, 0x00, 48, 0x04, 48};
     const std::vector<uint8_t> plain   = {0x00, 48, 0x04, 48};
     addTrack(block, 0, Device::SSGS,    0, plain);
-    addTrack(block, 1, Device::OPLLEX1, 0, fmPart);
-    addTrack(block, 2, Device::OPL2EX1, 0, fmPart);
-    addTrack(block, 3, Device::DCSG1,   0, plain);
+    addTrack(block, 1, Device::OPLLEX, 0, fmPart);
+    addTrack(block, 2, Device::OPL2EX, 0, fmPart);
     addTrack(block, 4, Device::SCC,     0, sccPart);
 
     // ADPCM。ボイスファイル 0 を 1KB ぶん置き、その速さで鳴らす。中身は
@@ -144,7 +145,7 @@ int main() {
     std::vector<uint8_t> sample(4 * 256);
     for (size_t i = 0; i < sample.size(); ++i) sample[i] = static_cast<uint8_t>((i % 8 < 4) ? 0x33 : 0xCC);
     chips.loadAdpcmMemory(sample);
-    addTrack(block, 5, Device::OPL2EX2, kChannelAdpcm, {0x82, 0x00, 0x00, 48, 0x04, 48});
+    addTrack(block, 5, Device::OPL2EX, kChannelAdpcm, {0x82, 0x00, 0x00, 48, 0x04, 48});
 
     DeviceSet devices(chips);
     devices.resetAll();
@@ -158,7 +159,7 @@ int main() {
     const double playing = rms(player, kRate / 2);     // 2音のうち1音目の途中まで
     std::printf("before=%.5f playing=%.5f\n", before, playing);
     CHECK(before < 0.001);
-    CHECK(playing > 0.02);
+    CHECK(playing > 0.004);
 
     // 曲は 96 tick で終わる。テンポ 120 なら 1 秒。
     rms(player, kRate);
@@ -172,7 +173,7 @@ int main() {
         SequenceBlock only;
         only.version = 1;
         only.adpcm = block.adpcm;
-        addTrack(only, 0, Device::OPL2EX2, kChannelAdpcm, {0x81, 127, 0x82, 0x00, 0x00, 48});
+        addTrack(only, 0, Device::OPL2EX, kChannelAdpcm, {0x81, 127, 0x82, 0x00, 0x00, 48});
 
         devices.resetAll();
         devices.setAdpcmDirectory(only.adpcm.data());
@@ -190,32 +191,70 @@ int main() {
         // 「前に読んでから」の山なので、いったん読み捨ててから測る。
         for (int d = 0; d < kDeviceCount; ++d) chips.takeLevel(static_cast<Device>(d));
         rms(player2, kRate / 20);
-        const float adpcmLevel = chips.takeLevel(Device::OPL2EX2);
+        const float adpcmLevel = chips.takeLevel(Device::OPL2EX);
         const float ssgsLevel  = chips.takeLevel(Device::SSGS);
-        std::printf("level OPL2EX2=%.4f SSGS=%.4f\n", adpcmLevel, ssgsLevel);
+        std::printf("level OPL2EX=%.4f SSGS=%.4f\n", adpcmLevel, ssgsLevel);
         CHECK(adpcmLevel > 0.01f);
         CHECK(ssgsLevel == 0.0f);
         // 読むと 0 に戻る。
-        CHECK(chips.takeLevel(Device::OPL2EX2) == 0.0f);
+        CHECK(chips.takeLevel(Device::OPL2EX) == 0.0f);
 
         // ブロックごとの音量。0 にすればそのブロックは出てこない。
         // Player は割り込みの間隔1回ぶんを先に作ってためるので、その分は前の音量で出る。
-        chips.setGain(Device::OPL2EX2, 0.0f);
+        chips.setGain(Device::OPL2EX, 0.0f);
         rms(player2, kRate / 100);
-        chips.takeLevel(Device::OPL2EX2);
+        chips.takeLevel(Device::OPL2EX);
         const double muted = rms(player2, kRate / 20);
         CHECK(muted < 0.001);
-        CHECK(chips.takeLevel(Device::OPL2EX2) == 0.0f);
-        chips.setGain(Device::OPL2EX2, 1.0f);
+        CHECK(chips.takeLevel(Device::OPL2EX) == 0.0f);
+        chips.setGain(Device::OPL2EX, 1.0f);
         const double back = rms(player2, kRate / 20);
         std::printf("muted=%.5f back=%.5f\n", muted, back);
         CHECK(back > 0.01);
     }
 
+    // ブロックごとの音量とマスターは線形の利得（CALL MIXER の目盛り）。64 なら振幅は半分。
+    // マスターはブロックの音量に重なって掛かり、レベルメーターの山はマスターの前で取る。
+    {
+        SequenceBlock tone;
+        tone.version = 1;
+        addTrack(tone, 0, Device::SSGS, 0, {0x00, 96});    // 1 秒鳴り続ける矩形波
+        devices.resetAll();
+        Sequencer s(devices, TickRate::Hz200);
+        s.load(0, tone);
+        Player p(chips, s, TickRate::Hz200, kRate);
+        s.start(0, 1);
+        rms(p, kRate / 20);
+        // Player は割り込みの間隔1回ぶんを先に作ってためるので、変えたあと少し流してから測る。
+        const auto peakAfter = [&](float& meter) {
+            rms(p, kRate / 100);
+            chips.takeLevel(Device::SSGS);
+            std::vector<float> l(kRate / 20), r(kRate / 20);
+            p.render(l.data(), r.data(), static_cast<uint32_t>(l.size()));
+            float peak = 0.0f;
+            for (size_t i = 0; i < l.size(); ++i) peak = std::max(peak, std::max(std::fabs(l[i]), std::fabs(r[i])));
+            meter = chips.takeLevel(Device::SSGS);
+            return peak;
+        };
+        float meterFull = 0, meterHalf = 0, meterMaster = 0;
+        const float full = peakAfter(meterFull);
+        chips.setGain(Device::SSGS, mixerGain(64));
+        const float half = peakAfter(meterHalf);
+        chips.setGain(Device::SSGS, 1.0f);
+        chips.setMasterGain(mixerGain(32));
+        const float master = peakAfter(meterMaster);
+        chips.setMasterGain(1.0f);
+        std::printf("gain: full=%.4f block 64=%.4f master 32=%.4f (meter %.4f)\n", full, half, master, meterMaster);
+        CHECK(full > 0.003f);
+        CHECK(std::fabs(half / full - 0.5f) < 0.01f);
+        CHECK(std::fabs(master / full - 0.25f) < 0.01f);
+        CHECK(std::fabs(meterMaster / full - 1.0f) < 0.01f);
+    }
+
     // ADPCM が実際にサンプルメモリを読んでいるか。音が出るだけでは、メモリを読まず
     // に出る音と見分けられないので、中身を変えて出力が変わることを見る。中身は開いた
     // あとで写すので、エンジンがメモリを複製せずに共有していることも見ている。
-    for (Device d : {Device::OPL2EX1, Device::OPL2EX2}) {
+    for (Device d : {Device::OPL2EX}) {
         auto renderAdpcm = [&](const std::vector<uint8_t>& memory) {
             SequenceBlock only;
             only.version = 1;
@@ -243,7 +282,7 @@ int main() {
         double diff = 0;
         for (size_t i = 0; i < a.size(); ++i) diff += std::fabs(double(a[i]) - b[i]);
         diff /= static_cast<double>(a.size());
-        std::printf("%s adpcm memory A vs B: mean |diff| = %.5f\n", d == Device::OPL2EX1 ? "OPL2EX1" : "OPL2EX2", diff);
+        std::printf("%s adpcm memory A vs B: mean |diff| = %.5f\n", deviceSymbol(d), diff);
         CHECK(diff > 0.001);
     }
 
@@ -257,8 +296,8 @@ int main() {
         SequenceBlock legato;
         legato.version = 1;
         legato.voices[0] = fmVoice();
-        addTrack(legato, 0, Device::OPLLEX1, 0, notes);
-        addTrack(legato, 1, Device::OPL2EX1, 0, notes);
+        addTrack(legato, 0, Device::OPLLEX, 0, notes);
+        addTrack(legato, 1, Device::OPL2EX, 0, notes);
         addTrack(legato, 2, Device::OPL3, 0, notes);
         SequenceBlock opl3Only;
         opl3Only.version = 1;
@@ -330,7 +369,7 @@ int main() {
         SequenceBlock crowd;
         crowd.version = 1;
         crowd.voices[0] = fmVoice();
-        crowd.rhythmMode[static_cast<size_t>(Device::OPLLEX1)] = true;
+        crowd.rhythmMode[static_cast<size_t>(Device::OPLLEX)] = true;
         std::vector<uint8_t> melody = {0x85, 0x00};
         std::vector<uint8_t> drums  = {0xA9, 12, 0xAA, 15};
         constexpr int kHits = 8;
@@ -338,8 +377,8 @@ int main() {
             melody.insert(melody.end(), {0x00, 24});    // クオンタイズ 8：境目で KEY OFF と KEY ON が同じ tick
             drums.insert(drums.end(), {0xC8, 0x18, 24}); // BD と SD
         }
-        for (int t = 0; t < 5; ++t) addTrack(crowd, t, Device::OPLLEX1, static_cast<uint8_t>(t), melody);
-        addTrack(crowd, 5, Device::OPLLEX1, kChannelRhythm, drums);
+        for (int t = 0; t < 5; ++t) addTrack(crowd, t, Device::OPLLEX, static_cast<uint8_t>(t), melody);
+        addTrack(crowd, 5, Device::OPLLEX, kChannelRhythm, drums);
 
         const uint32_t total = kRate * 2;
         // エミュレータの内部状態（位相など）を揃えるため、毎回開き直す。
@@ -388,7 +427,7 @@ int main() {
         v.data[2] = 0x3F;            // モジュレータは鳴らさない
         v.data[11] = 0x01;           // キャリアは半波サイン
         only.voices[0] = v;
-        addTrack(only, 0, Device::OPL2EX1, 0, {0x85, 0x00, 0x00, 96});
+        addTrack(only, 0, Device::OPL2EX, 0, {0x85, 0x00, 0x00, 96});
 
         devices.resetAll();
         Sequencer s(devices, TickRate::Hz200);
@@ -441,10 +480,12 @@ int main() {
             const char* name;
             Device      device;
             uint8_t     channel;
-            bool        panned;     // `87` で定位が変わる。OPN 系の SSG と、OPLLEX・OPL2EX は持たない
+            bool        panned;     // `87` で定位が変わる。OPN 系の SSG は持たない
         };
+        // SSGS の高さは、エンジンに渡すクロックの意味（SSG の動作クロック）も見ている。
         const Case cases[] = {
-            {"OPLLEX1 ch0", Device::OPLLEX1, 0, false}, {"OPL2EX1 ch0", Device::OPL2EX1, 0, false},
+            {"SSGS ch0", Device::SSGS, 0, true},  {"SSGS ch4", Device::SSGS, 4, true},
+            {"OPLLEX ch0", Device::OPLLEX, 0, true}, {"OPL2EX ch0", Device::OPL2EX, 0, true},
             {"OPL3 ch0", Device::OPL3, 0, true},  {"OPL3 ch9", Device::OPL3, 9, true},
             {"OPL3 ch18", Device::OPL3, 18, true},
             {"OPM ch0", Device::OPM, 0, true},
@@ -460,8 +501,8 @@ int main() {
             b.deviceVoices[static_cast<size_t>(Device::OPNB) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
             b.deviceVoices[static_cast<size_t>(Device::OPNA) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
             b.deviceVoices[0][0] = sineOpn();
-            // 左だけに出す。右が黙っていれば `87` がチップの左右に届いている。
-            addTrack(b, 0, c.device, c.channel, {0x85, 0x00, 0x87, 0x00, 0x80, 4, 0x09, 96});
+            // 左端（1）に置く。右が黙っていれば `87` がチップの左右に届いている。
+            addTrack(b, 0, c.device, c.channel, {0x85, 0x00, 0x87, 0x01, 0x80, 4, 0x09, 96});
             const Stereo out = renderFresh(b, kRate / 2);
             const double f = frequency(out.l, kRate / 10);
             const double r = rmsOf(out.r, kRate / 10);

@@ -1,7 +1,6 @@
 add_library(y8960core STATIC
     block.cpp
     chips.cpp
-    dev_dcsg.cpp
     dev_opl2ex.cpp
     dev_opl3.cpp
     dev_opllex.cpp
@@ -12,6 +11,7 @@ add_library(y8960core STATIC
     device.cpp
     fmengine.cpp
     freqtab.cpp
+    mixer.cpp
     mute.cpp
     pcmfile.cpp
     pitch.cpp

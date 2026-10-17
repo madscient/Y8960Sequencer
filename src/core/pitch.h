@@ -20,7 +20,7 @@ struct OplPitch {
 // isOpl2 で F-Number の幅が変わる（OPLL は 9bit、OPL2 は 10bit）。
 OplPitch oplPitch(bool isOpl2, uint8_t note, int16_t bendSteps);
 
-// 分周器系（SSGS・DCSG・SCC）の分周値。SCC のレジスタに書くのはこれから 1 引いた値。
+// 分周器系（SSGS・SCC）の分周値。SCC のレジスタに書くのはこれから 1 引いた値。
 struct DivPitch {
     uint16_t divisor    = 1;
     bool     outOfRange = false;

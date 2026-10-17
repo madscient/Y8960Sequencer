@@ -9,23 +9,30 @@
 
 namespace y8960 {
 
+// 値は形式のデバイス番号そのもの。4-7 はどのチップにも割り当てられていない。
 enum class Device : uint8_t {
-    SSGS    = 0,
-    OPLLEX1 = 1,
-    OPLLEX2 = 2,
-    OPL2EX1 = 3,
-    OPL2EX2 = 4,
-    DCSG1   = 5,
-    DCSG2   = 6,
-    SCC     = 7,
-    OPL3    = 8,
-    OPM     = 9,
-    OPNA    = 10,
-    OPNB    = 11,
+    SSGS   = 0,
+    OPLLEX = 1,
+    OPL2EX = 2,
+    SCC    = 3,
+    OPL3   = 8,
+    OPM    = 9,
+    OPNA   = 10,
+    OPNB   = 11,
 };
 
-// このプレイヤーが鳴らすデバイスの数。これ以上の番号のトラックは読み飛ばす。
+// デバイス番号で引く配列の大きさ。4-7 の枠は空いたまま使わない ―― 番号を詰めると、
+// 形式の番号との変換があちこちに要る。
 constexpr int kDeviceCount   = 12;
+// このプレイヤーが鳴らすデバイス。番号の順。
+constexpr std::array<Device, 8> kDevices = {
+    Device::SSGS, Device::OPLLEX, Device::OPL2EX, Device::SCC,
+    Device::OPL3, Device::OPM,    Device::OPNA,   Device::OPNB,
+};
+// 形式のデバイス番号のうち、このプレイヤーが鳴らすもの。4-7 と 12 以上は鳴らさない。
+constexpr bool isPlayedDevice(unsigned number) {
+    return number < 4 || (number >= 8 && number < static_cast<unsigned>(kDeviceCount));
+}
 constexpr int kMaxChannels   = 25;     // OPL3 の 0-24
 constexpr int kTrackCount    = 16;
 constexpr int kVoiceSetSize  = 32;     // `85` が指せる索引

@@ -75,11 +75,13 @@ constexpr int kOpSl     = 2;
 constexpr int kOpMult   = 3;
 constexpr int kOpWave   = 4;
 
-// `87` の 0-15 を、出力 A（左）と B（右）の入り切りに丸める。
+// `87` を、出力 A（左）と B（右）の入り切りに丸める。
 uint8_t panBits(uint8_t value) {
-    if (value < 4)  return kOutA;
-    if (value < 12) return kOutAB;
-    return kOutB;
+    switch (panSide(value)) {
+    case PanSide::Left:  return kOutA;
+    case PanSide::Right: return kOutB;
+    default:             return kOutAB;
+    }
 }
 
 class Opl3Device final : public SoundDevice {

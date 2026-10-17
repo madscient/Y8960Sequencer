@@ -7,6 +7,7 @@
 #include "chips.h"
 #include "device.h"
 #include "fader.h"
+#include "mixer.h"
 #include "pcmfile.h"
 #include "player.h"
 #include "sequencer.h"
@@ -36,8 +37,11 @@ public:
     // 音声デバイスを開かなかったときに、音を取り出す。
     void renderOffline(float* left, float* right, uint32_t frames);
 
-    // ブロックごとの音量とレベルメーター。
+    // ブロックごとの音量、マスターの音量、レベルメーター。
     void  setGain(Device device, float gain) { chips_.setGain(device, gain); }
+    void  setMasterGain(float gain) { chips_.setMasterGain(gain); }
+    // CALL MIXER の5つ。デバイス 8-11 には触らない。
+    void  setMixer(const MixerLevels& levels);
     float takeLevel(Device device) { return chips_.takeLevel(device); }
     // チャンネルごとの発音の様子。画面のスレッドから読んでよい。
     const ChannelActivity& activity() const { return activity_; }

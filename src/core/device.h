@@ -30,8 +30,8 @@ public:
     virtual void setRhythmMode(bool on, const VoiceRecord* rhythmVoices) {
         (void)on; (void)rhythmVoices;
     }
-    // 周の頭。走行状態のうちドライバが持つもの（SCC の `B3`、効果音モードの `E9`）を
-    // 初期値に戻す。
+    // 周の頭。走行状態のうちドライバが持つもの（SCC の `B3`、SSGS の `B4`、効果音モードの
+    // `E9`）を初期値に戻す。
     virtual void rewindChannel(uint8_t ch) { (void)ch; }
 
     virtual void keyOn(uint8_t ch)  { (void)ch; }
@@ -45,8 +45,10 @@ public:
     virtual void seqVoice(uint8_t ch, uint8_t slot, const VoiceRecord& record) {
         (void)ch; (void)slot; (void)record;
     }
-    // `87`。0 が左端、8 が中央、15 が右端。
+    // `87`。1 が左端、128 が中央、255 が右端、0 も中央（Y8960 の定位レジスタの値）。
     virtual void setPan(uint8_t ch, uint8_t value) { (void)ch; (void)value; }
+    // `B4`。SSGS のチャンネルの線形の音量 0-128。
+    virtual void setChannelGain(uint8_t ch, uint8_t value) { (void)ch; (void)value; }
     // `B3`。音量を表で直すか（SCC）。
     virtual void setVolumeTable(uint8_t ch, bool table) { (void)ch; (void)table; }
     // `E9`。効果音モードのサブチャンネル（1-3）の高さの、親からの差（1/64 半音）。
@@ -78,7 +80,7 @@ public:
     }
 };
 
-// 12 デバイスぶんのドライバ。
+// 鳴らすデバイスぶんのドライバ。4-7 の枠は空。
 class DeviceSet {
 public:
     explicit DeviceSet(ChipBus& bus);

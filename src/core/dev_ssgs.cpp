@@ -1,9 +1,12 @@
-// SSGS（YMZ705 の SSG 互換部）。Y8960BasicExtension の src/dev/ssg.asm の写し。
+// SSGS（SSG 2つ ＋ チャンネルごとの音量と定位）。Y8960BasicExtension の src/dev/ssg.asm の写し。
 // OPNA・OPNB の SSG 部も同じレジスタを持つので、このドライバで鳴らす（ROM に無い）。
 //
-// SSGS は2つの SSG が1つのポート対を分け合う。レジスタ番号が 20h 未満なら第1セット、
-// 20h 以上なら第2セット。チャンネル 0-2 が第1セット、3-5 が第2セット。
-// OPNA・OPNB の SSG は1セットで、チャンネル 6-8 がその A-C。
+// SSGS は2つの SSG とブロック自身のレジスタが1つのポート対を分け合う。00h-0Fh が
+// 第1セット、10h-1Fh が第2セット、20h-2Fh がチャンネルの音量と定位で、4つずつの
+// 組の4つ目は未接続。チャンネル 0-2 が第1セット、3-5 が第2セット。
+// OPNA・OPNB の SSG は1セットで、チャンネル 6-8 がその A-C。ブロックのレジスタは無い。
+//
+// `81` は SSG 自身の 4 ビットのレベルに効き、チャンネルの音量レジスタは `B4` が決める。
 //
 // キーはトーンのスイッチではなくレベル。スイッチを切ってもチャンネルは切れず、
 // レベルが直流として出てしまうので、消すのはレベルのほう。
@@ -15,7 +18,7 @@ namespace y8960 {
 
 namespace {
 
-constexpr uint8_t kSsg2Base   = 0x20;
+constexpr uint8_t kSsg2Base   = 0x10;
 constexpr uint8_t kChPerSet    = 3;
 constexpr uint8_t kMaxLocal    = 6;
 constexpr uint8_t kRegToneL    = 0x00;
@@ -25,9 +28,13 @@ constexpr uint8_t kRegVol      = 0x08;
 constexpr uint8_t kRegEnvPerL  = 0x0B;
 constexpr uint8_t kRegEnvPerH  = 0x0C;
 constexpr uint8_t kRegShape    = 0x0D;
-constexpr uint8_t kRegs        = 0x0E;   // 00h-0Dh が音のレジスタ
-constexpr uint8_t kRegPan      = 0x10;
-constexpr uint8_t kPanCentre   = 8;
+constexpr uint8_t kRegs        = 0x0E;   // 00h-0Dh が音のレジスタ。0Eh・0Fh は GPIO
+constexpr uint8_t kRegGain     = 0x20;   // 第2セットは +4
+constexpr uint8_t kRegPan      = 0x28;   // 同上
+constexpr uint8_t kBlockEnd    = 0x2F;
+constexpr uint8_t kBlockSet2   = 0x04;
+constexpr uint8_t kPanCentre   = 128;
+constexpr uint8_t kGainMax     = 128;
 constexpr uint8_t kNoiseOff    = 0x38;   // トーンは通し、ノイズは切る
 constexpr uint8_t kNoiseShift  = 3;
 constexpr uint8_t kVolEnv      = 0x10;
@@ -36,10 +43,11 @@ constexpr uint8_t kSavKey      = 0x80;
 
 class SsgDevice final : public SoundDevice, private EnvelopeSink {
 public:
-    // first はデバイスのチャンネル番号の先頭、sets は SSG の数。pan は SSGS だけが持つ。
-    SsgDevice(ChipBus& bus, Device which, uint8_t first, uint8_t sets, bool pan, SoftEnvelope& envelope)
+    // first はデバイスのチャンネル番号の先頭、sets は SSG の数。block はチャンネルの
+    // 音量と定位のレジスタを持つか（SSGS だけ）。
+    SsgDevice(ChipBus& bus, Device which, uint8_t first, uint8_t sets, bool block, SoftEnvelope& envelope)
         : bus_(bus), which_(which), first_(first),
-          channels_(static_cast<uint8_t>(sets * kChPerSet)), pan_(pan), env_(envelope) {
+          channels_(static_cast<uint8_t>(sets * kChPerSet)), block_(block), env_(envelope) {
         env_.attach(which_, this);
     }
 
@@ -50,9 +58,11 @@ public:
             write(local, static_cast<uint8_t>(kRegToneL + sub * 2 + 1), 0);
             write(local, static_cast<uint8_t>(kRegVol + sub), 0);
             level_[local] = 0;
-            // チップは左端で立ち上がるので、何も言わないパートが片側に寄らないよう
-            // 中央に置く。
-            if (pan_) write(local, static_cast<uint8_t>(kRegPan + sub), kPanCentre);
+            // 電源投入時の値と同じだが、前の曲が変えたままにしない。
+            if (block_) {
+                writeAbs(blockReg(kRegPan, local), kPanCentre);
+                writeAbs(blockReg(kRegGain, local), kGainMax);
+            }
         }
         for (uint8_t set = 0; set * kChPerSet < channels_; ++set) {
             const uint8_t local = static_cast<uint8_t>(set * kChPerSet);
@@ -127,12 +137,21 @@ public:
         write(local, kRegEnable, en);
     }
 
-    // SSGS の定位レジスタは `87` と同じ目盛り（0 が左端、8 が中央、15 が右端）。
+    // SSGS の定位レジスタは `87` と同じ目盛り。
     void setPan(uint8_t ch, uint8_t value) override {
         uint8_t local;
-        if (!pan_ || !toLocal(ch, local)) return;
-        write(local, static_cast<uint8_t>(kRegPan + subChannel(local)), value);
+        if (!block_ || !toLocal(ch, local)) return;
+        writeAbs(blockReg(kRegPan, local), value);
     }
+
+    // シーケンスの外の音量（ミュートを含む）はここには掛からない。
+    void setChannelGain(uint8_t ch, uint8_t value) override {
+        uint8_t local;
+        if (!block_ || !toLocal(ch, local)) return;
+        writeAbs(blockReg(kRegGain, local), value);
+    }
+
+    void rewindChannel(uint8_t ch) override { setChannelGain(ch, kGainMax); }
 
     void ssgEnv(SsgEnv kind, uint8_t ch, uint8_t value) override {
         uint8_t local;
@@ -167,9 +186,17 @@ private:
         return true;
     }
 
+    // GPIO（0Eh 0Fh 1Eh 1Fh。1Fh は基板の LED）と、組の間の未接続の番号は断る。
     bool validReg(uint8_t reg) const {
         if (reg < kRegs) return true;
-        return channels_ > kChPerSet && reg >= kSsg2Base && reg < kSsg2Base + kRegs;
+        if (!block_) return false;
+        if (reg >= kSsg2Base && reg < kSsg2Base + kRegs) return true;
+        return reg >= kRegGain && reg < kBlockEnd && (reg & 3) != 3;
+    }
+
+    // チャンネルの音量か定位のレジスタ。group は kRegGain か kRegPan。
+    static uint8_t blockReg(uint8_t group, uint8_t local) {
+        return static_cast<uint8_t>(group + (setOf(local) ? kBlockSet2 : 0) + subChannel(local));
     }
 
     uint16_t period(uint8_t note, int16_t bend) const {
@@ -211,7 +238,9 @@ private:
     void envReleased(uint8_t ch) override { keyOff(ch); }
 
     // Y の書き込みを、ドライバがバイトを組み立てる控えにも入れる。キーは演奏側のもの。
+    // ブロックのレジスタは何も組み立てないので、次の `87` か `B4` まで Y の値が残る。
     void ySave(uint8_t reg, uint8_t value) {
+        if (reg >= kRegGain) return;
         uint8_t base = 0;
         uint8_t r = reg;
         if (r >= kSsg2Base) {
@@ -231,7 +260,7 @@ private:
     Device   which_;
     uint8_t  first_;
     uint8_t  channels_;
-    bool     pan_;
+    bool     block_;
     SoftEnvelope& env_;
     std::array<uint8_t, 0x40> shadow_{};
     std::array<uint8_t, kMaxLocal> level_{};

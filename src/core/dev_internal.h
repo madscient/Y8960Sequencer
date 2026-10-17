@@ -8,12 +8,11 @@
 
 namespace y8960 {
 
-// この3つはソフトウェアエンベロープを持ち、作るときに自分を envelope に結び付ける。
+// この2つはソフトウェアエンベロープを持ち、作るときに自分を envelope に結び付ける。
 std::unique_ptr<SoundDevice> makeSsgsDevice(ChipBus& bus, SoftEnvelope& envelope);
-std::unique_ptr<SoundDevice> makeDcsgDevice(ChipBus& bus, Device which, SoftEnvelope& envelope);
 std::unique_ptr<SoundDevice> makeSccDevice(ChipBus& bus, SoftEnvelope& envelope);
-std::unique_ptr<SoundDevice> makeOpllexDevice(ChipBus& bus, Device which);
-std::unique_ptr<SoundDevice> makeOpl2exDevice(ChipBus& bus, Device which);
+std::unique_ptr<SoundDevice> makeOpllexDevice(ChipBus& bus);
+std::unique_ptr<SoundDevice> makeOpl2exDevice(ChipBus& bus);
 std::unique_ptr<SoundDevice> makeOpl3Device(ChipBus& bus);
 std::unique_ptr<SoundDevice> makeOpmDevice(ChipBus& bus);
 // OPNA と OPNB。SSG 部（チャンネル 6-8）はソフトウェアエンベロープを持つ。
@@ -27,6 +26,14 @@ std::unique_ptr<SoundDevice> makeOpnSsg(ChipBus& bus, Device which, SoftEnvelope
 inline uint8_t volumeStep(uint8_t loudness) {
     const int down = (127 - (loudness & 127)) >> 2;
     return static_cast<uint8_t>(15 - (down > 15 ? 15 : down));
+}
+
+// `87` の値を、左右の出力を入れるか切るかしか選べないチップ向けに丸める
+// （bytecode.md「パンポット」の表）。0 は中央。
+enum class PanSide : uint8_t { Left, Both, Right };
+inline PanSide panSide(uint8_t value) {
+    if (value == 0 || (value > 64 && value < 192)) return PanSide::Both;
+    return value <= 64 ? PanSide::Left : PanSide::Right;
 }
 
 // 音量を、線形の利得を持つ ADPCM のレベル 0-255 に（adpcm.asm の ADPVOLTAB と同じ式）。

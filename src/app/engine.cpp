@@ -177,6 +177,13 @@ void PlaybackEngine::setTickRate(TickRate rate) {
     }
 }
 
+void PlaybackEngine::setMixer(const MixerLevels& levels) {
+    chips_.setMasterGain(mixerGain(levels.master));
+    for (size_t i = 0; i < levels.blocks.size(); ++i) {
+        chips_.setGain(static_cast<Device>(i), mixerGain(levels.blocks[i]));
+    }
+}
+
 void PlaybackEngine::setTrackMutes(uint16_t mask) {
     std::lock_guard<std::mutex> lock(mutex_);
     muteMask_ = mask;

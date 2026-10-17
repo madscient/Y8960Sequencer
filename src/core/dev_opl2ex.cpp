@@ -1,4 +1,4 @@
-// OPL2EX（YM3812 ＋ ADPCM-B）。Y8960BasicExtension の src/dev/opl2ex.asm と
+// OPL2EX（YM3812 ＋ ADPCM-B ＋ チャンネルごとの定位）。Y8960BasicExtension の src/dev/opl2ex.asm と
 // src/dev/rhythm.asm・src/dev/adpcm.asm の写し。
 
 #include "dev_internal.h"
@@ -19,6 +19,9 @@ constexpr uint8_t kRegFnumH   = 0xB0;
 constexpr uint8_t kRegRhythm  = 0xBD;
 constexpr uint8_t kRegFbCon   = 0xC0;
 constexpr uint8_t kRegWaveSel = 0xE0;
+constexpr uint8_t kRegPan     = 0xF6;   // F6h-FEh が ch0-8、FFh が ADPCM。値は `87` そのもの
+constexpr uint8_t kRegPanAdpcm = 0xFF;
+constexpr uint8_t kPanCentre  = 128;
 constexpr uint8_t kRegTest    = 0x01;
 constexpr uint8_t kWse        = 0x20;   // 立てないと E0h-F5h は効かず、全部サインになる
 constexpr uint8_t kRegFlagCtl = 0x04;
@@ -104,7 +107,7 @@ constexpr int kOpWave   = 4;
 
 class Opl2exDevice final : public SoundDevice {
 public:
-    Opl2exDevice(ChipBus& bus, Device which) : bus_(bus), which_(which) {}
+    explicit Opl2exDevice(ChipBus& bus) : bus_(bus) {}
 
     void reset() override {
         // フラグは落としてから全部マスクする。開いたままだと、カートリッジが
@@ -123,6 +126,8 @@ public:
         fill(kRegFnumH, kChannels, 0);
         fill(kRegFbCon, kChannels, 0);
         fill(kRegWaveSel, kOpRegs, 0);
+        // 定位は周の頭で戻らないので、前の曲が寄せたままにしない。
+        fill(kRegPan, kChannels + 1, kPanCentre);
         write(kRegTest, kWse);
         for (uint8_t ch = 0; ch < kChannels; ++ch) {
             fnh_[ch] = 0;
@@ -230,6 +235,18 @@ public:
         loadVoice(ch, record.data.data());
     }
 
+    // リズムチャンネルは自分の定位を持たない。5つの楽器は ch6-8 の定位で鳴るので、
+    // その3本に同じ値を書く。
+    void setPan(uint8_t ch, uint8_t value) override {
+        if (ch == kChannelRhythm) {
+            for (uint8_t c = kRhyFirst; c < kChannels; ++c) write(static_cast<uint8_t>(kRegPan + c), value);
+        } else if (ch == kChannelAdpcm) {
+            write(kRegPanAdpcm, value);
+        } else if (ch < kChannels) {
+            write(static_cast<uint8_t>(kRegPan + ch), value);
+        }
+    }
+
     void rhythmVolume(uint8_t target, uint8_t level) override {
         rhythm_.setLevel(target, level);
     }
@@ -273,7 +290,7 @@ public:
 private:
     void write(uint8_t reg, uint8_t value) {
         shadow_[reg] = value;
-        bus_.write(which_, reg, value);
+        bus_.write(Device::OPL2EX, reg, value);
     }
 
     void fill(uint8_t first, uint8_t count, uint8_t value) {
@@ -383,7 +400,6 @@ private:
     }
 
     ChipBus& bus_;
-    Device   which_;
     std::array<uint8_t, 256> shadow_{};
     std::array<uint8_t, kChannels> fnh_{};
     std::array<uint8_t, kChannels> volume_{};
@@ -399,8 +415,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<SoundDevice> makeOpl2exDevice(ChipBus& bus, Device which) {
-    return std::make_unique<Opl2exDevice>(bus, which);
+std::unique_ptr<SoundDevice> makeOpl2exDevice(ChipBus& bus) {
+    return std::make_unique<Opl2exDevice>(bus);
 }
 
 } // namespace y8960

@@ -36,11 +36,17 @@ constexpr float    kFadeSeconds   = 5.0f;
 constexpr float    kPlaylistWidth = 300.0f;
 
 const char* const kDeviceNames[y8960::kDeviceCount] = {
-    "SSGS", "OPLLEX 1", "OPLLEX 2", "OPL2EX 1", "OPL2EX 2", "DCSG 1", "DCSG 2", "SCC",
+    "SSGS", "OPLLEX", "OPL2EX", "SCC", nullptr, nullptr, nullptr, nullptr,
     "OPL3", "OPM", "OPNA", "OPNB",
 };
 
 const char* const kTickNames[] = {"VDP 60Hz", "VDP 50Hz", "MSX-TIMER 100Hz", "MSX-TIMER 200Hz"};
+
+std::array<int, y8960::kDeviceCount> filledLevels() {
+    std::array<int, y8960::kDeviceCount> a{};
+    a.fill(y8960::kMixerLevelMax);
+    return a;
+}
 
 // 開いたもの・落としたものをどう扱うか。
 struct PendingAdd {
@@ -64,7 +70,9 @@ struct App {
     bool        showAllChannels = false;
     y8960::LevelMeter meter;
     y8960::MuteState  mutes;
-    std::array<float, y8960::kDeviceCount> gainDb{};
+    // ブロックごとの音量とマスター。CALL MIXER と同じ 0-128 の線形の目盛り。保存しない。
+    std::array<int, y8960::kDeviceCount> levels = filledLevels();
+    int         masterLevel = y8960::kMixerLevelMax;
 
     y8960::Playlist playlist;
     int   selected     = y8960::Playlist::kNone;
@@ -628,13 +636,19 @@ int main(int argc, char** argv) {
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(click a bar to mute its channel)");
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SliderInt("Master", &app.masterLevel, 0, y8960::kMixerLevelMax, "%d", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) app.masterLevel = y8960::kMixerLevelMax;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master level (0-128, linear). Right-click to reset.");
         app.meter.update(app.engine, app.block, app.haveBlock, app.showAllChannels,
                          static_cast<float>(ImGui::GetTime()));
-        if (app.meter.draw(app.mutes, app.gainDb)) mutesChanged = true;
+        if (app.meter.draw(app.mutes, app.levels)) mutesChanged = true;
         if (mutesChanged && app.haveBlock) app.engine.setTrackMutes(app.mutes.trackMask(app.block));
-        for (size_t d = 0; d < y8960::kDeviceCount; ++d) {
-            app.engine.setGain(static_cast<y8960::Device>(d), y8960::gainFromDb(app.gainDb[d]));
+        for (y8960::Device d : y8960::kDevices) {
+            const int level = app.levels[static_cast<size_t>(d)];
+            app.engine.setGain(d, y8960::mixerGain(static_cast<uint8_t>(level)));
         }
+        app.engine.setMasterGain(y8960::mixerGain(static_cast<uint8_t>(app.masterLevel)));
 
         ImGui::Separator();
         drawTracks(app);
