@@ -1,4 +1,5 @@
-// OPM（YM2151、デバイス 9）。ROM に写し元は無く、bytecode.md の定めから作る。
+// OPM（YM2151、デバイス 4）。bytecode.md の定めから作り、ROM の src/dev/opm.asm（`d1db78e`）と
+// 突き合わせた。形式が意味を定めない `87` の 0 は、ROM では左だけ、ここでは両方（panSide）。
 // 音色はチャンク 40 のレコード（OPN 系と共通の 32 バイト）。
 
 #include "dev_internal.h"
@@ -12,6 +13,8 @@ namespace {
 constexpr uint8_t kChannels  = 8;
 constexpr uint8_t kRegKeyOn  = 0x08;
 constexpr uint8_t kRegNoise  = 0x0F;
+constexpr uint8_t kRegTimerCtl = 0x14;
+constexpr uint8_t kTimerReset  = 0x30;   // 2つのフラグを落とし、どれも許さない
 constexpr uint8_t kRegPanCon = 0x20;   // RL・FB・CON
 constexpr uint8_t kRegKc     = 0x28;
 constexpr uint8_t kRegKf     = 0x30;
@@ -44,34 +47,32 @@ class OpmDevice final : public SoundDevice {
 public:
     explicit OpmDevice(ChipBus& bus) : bus_(bus) {}
 
+    // 値と順は ROM の OPM_RESET（OPMRESTAB）と同じ。LFO・ノイズ・タイマーはチップ全体の
+    // もので、シーケンスは管理しない。RR を TL より先に書くのは、遅いリリースで鳴り残って
+    // いる音を先に無音へ切らないため。
     void reset() override {
-        // LFO・ノイズ・タイマーはチップ全体のもので、シーケンスは管理しない。
-        // 演奏を始める前の値としてここで 0 にする。
+        for (uint8_t ch = 0; ch < kChannels; ++ch) write(kRegKeyOn, ch);
         write(0x01, 0);
+        write(kRegTimerCtl, kTimerReset);
         write(kRegNoise, 0);
-        write(0x14, 0);
         write(0x18, 0);
         write(0x19, 0);           // AMD と PMD は 19h を bit7 で分け合う
         write(0x19, 0x80);
         write(0x1B, 0);
-        for (uint8_t ch = 0; ch < kChannels; ++ch) {
-            write(kRegKeyOn, ch);
-            write(static_cast<uint8_t>(kRegPanCon + ch), kPanLR);
-            write(static_cast<uint8_t>(kRegKc + ch), 0);
-            write(static_cast<uint8_t>(kRegKf + ch), 0);
-            write(static_cast<uint8_t>(kRegPmsAms + ch), 0);
-            for (uint8_t op = 0; op < 4; ++op) {
-                const uint8_t o = static_cast<uint8_t>(op * 8 + ch);
-                write(static_cast<uint8_t>(kRegDtMul + o), 0);
-                write(static_cast<uint8_t>(kRegTl + o), kTlMax);
-                write(static_cast<uint8_t>(kRegKsAr + o), 0);
-                write(static_cast<uint8_t>(kRegAmD1r + o), 0);
-                write(static_cast<uint8_t>(kRegDt2D2r + o), 0);
-                write(static_cast<uint8_t>(kRegD1lRr + o), 0xFF);
-            }
-            Channel& c = channels_[ch];
-            c = Channel{};
-        }
+        const auto fill = [this](uint8_t base, int count, uint8_t value) {
+            for (int i = 0; i < count; ++i) write(static_cast<uint8_t>(base + i), value);
+        };
+        fill(kRegD1lRr, 32, 0x0F);
+        fill(kRegTl, 32, kTlMax);
+        fill(kRegDtMul, 32, 0);
+        fill(kRegKsAr, 32, 0);
+        fill(kRegAmD1r, 32, 0);
+        fill(kRegDt2D2r, 32, 0);
+        fill(kRegPanCon, kChannels, kPanLR);
+        fill(kRegKc, kChannels, 0);
+        fill(kRegKf, kChannels, 0);
+        fill(kRegPmsAms, kChannels, 0);
+        for (Channel& c : channels_) c = Channel{};
     }
 
     void keyOn(uint8_t ch) override {
@@ -125,7 +126,6 @@ public:
         }
         // レコードは OPN の 28h の並び（bit7-4）。OPM の 08h では bit6-3。
         c.slots = static_cast<uint8_t>((r[kFmSlots] >> 1) & 0x78);
-        c.carriers = fmCarriers(r[kFmAlg]);
         c.transpose = static_cast<int8_t>(r[kFmTrans]);
         writeLevels(ch);
     }
@@ -136,14 +136,16 @@ public:
         write(reg, static_cast<uint8_t>((shadow_[reg] & ~kPanLR) | panBits(value)));
     }
 
+    // 14h は断る（ROM の OPMCHKREG と同じ）。タイマーの割り込みを許すレジスタで、実機では
+    // 応える者のいない /INT が本体に届く。
     bool regRead(uint8_t port, uint8_t reg, uint8_t& value) override {
-        if (port != 0) return false;
+        if (port != 0 || reg == kRegTimerCtl) return false;
         value = shadow_[reg];
         return true;
     }
 
     bool regWrite(uint8_t port, uint8_t reg, uint8_t value) override {
-        if (port != 0) return false;
+        if (port != 0 || reg == kRegTimerCtl) return false;
         write(reg, value);
         return true;
     }
@@ -152,8 +154,7 @@ private:
     struct Channel {
         uint8_t volume    = 0;
         int8_t  transpose = 0;
-        uint8_t slots     = 0x78;   // 08h の bit6-3。音色が決める
-        uint8_t carriers  = 0x08;   // レコードの並びの bit。C2 だけ
+        uint8_t slots     = 0;      // 08h の bit6-3。音色が決める。`85` の前はどれもキーオンしない
         std::array<uint8_t, 4> tl{kTlMax, kTlMax, kTlMax, kTlMax};
     };
 
@@ -165,8 +166,11 @@ private:
     void writeLevels(uint8_t ch) {
         const Channel& c = channels_[ch];
         const uint8_t take = fmAttenuation(c.volume, kTlMax);
+        // キャリアはチップの 20h の CON から決める。`Y` で接続を変えても音量はそれに従う（ROM の
+        // OPMTLOUT と同じ）。
+        const uint8_t carriers = fmCarriers(shadow_[kRegPanCon + ch]);
         for (uint8_t op = 0; op < 4; ++op) {
-            if (!((c.carriers >> op) & 1)) continue;
+            if (!((carriers >> op) & 1)) continue;
             const int level = c.tl[op] + take;
             write(static_cast<uint8_t>(kRegTl + kOpOffset[op] + ch),
                   static_cast<uint8_t>(level > kTlMax ? kTlMax : level));

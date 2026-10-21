@@ -194,8 +194,8 @@ int main() {
     CHECK(!loads(block({{0x00, track(16, 0, 0)}})));
     CHECK(loads(block({{0x00, track(0, 8, 24)}})));     // OPL3 は 0-24
     CHECK(!loads(block({{0x00, track(0, 8, 25)}})));
-    CHECK(loads(block({{0x00, track(0, 9, 7)}})));      // OPM は 0-7
-    CHECK(!loads(block({{0x00, track(0, 9, 8)}})));
+    CHECK(loads(block({{0x00, track(0, 4, 7)}})));      // OPM は 0-7
+    CHECK(!loads(block({{0x00, track(0, 4, 8)}})));
     CHECK(loads(block({{0x00, track(0, 10, 10)}})));    // OPNA と OPNB は 0-10
     CHECK(!loads(block({{0x00, track(0, 11, 11)}})));
     CHECK(!loads(block({{0x00, track(0, 0, 6)}})));     // SSGS は 0-5
@@ -208,17 +208,19 @@ int main() {
     CHECK(!loads(block({{0x00, track(0, 0, 1)}, {0x00, track(1, 0, 1)}})));
     CHECK(loads(block({{0x00, track(0, 0, 1)}, {0x00, track(1, 3, 1)}})));
 
-    // 鳴らさないデバイス（チップの無い 4-7 と 12 以上）のトラックは割り当てず、残りを読む。
+    // 鳴らさないデバイス（チップの無い 5-7 と 9、12 以上）のトラックは割り当てず、残りを読む。
     // チャンネル番号は見ない。
     {
         SequenceBlock s;
         std::string err;
         CHECK(load(block({{0x00, track(0, 12, 99)}, {0x00, track(1, 255, 0)}, {0x00, track(2, 0, 0)},
-                          {0x00, track(3, 4, 0)}, {0x00, track(4, 7, 99)}}), s, err));
+                          {0x00, track(3, 9, 0)}, {0x00, track(4, 7, 99)}, {0x00, track(5, 5, 0)},
+                          {0x00, track(6, 4, 0)}}), s, err));
         CHECK(!s.tracks[0].assigned && !s.tracks[1].assigned);
         CHECK(s.tracks[2].assigned);
-        CHECK(!s.tracks[3].assigned && !s.tracks[4].assigned);
-        CHECK(s.warnings.size() == 4);
+        CHECK(!s.tracks[3].assigned && !s.tracks[4].assigned && !s.tracks[5].assigned);
+        CHECK(s.tracks[6].assigned && s.tracks[6].device == Device::OPM);
+        CHECK(s.warnings.size() == 5);
     }
 
     // 排他のチャンネル。OPL3 のリズムと 6-8、4OP と組の 2OP
@@ -245,8 +247,8 @@ int main() {
 
     // チャンク 40（OPM・OPNA・OPNB の音色）はデバイスごとの集合に入る
     {
-        const Bytes b = block({{0x40, owned(9, 0, 32, 0x11)}, {0x40, owned(11, 31, 32, 0x22)},
-                               {0x01, voice(0, 0x33)}, {0x40, owned(12, 0, 5)}});
+        const Bytes b = block({{0x40, owned(4, 0, 32, 0x11)}, {0x40, owned(11, 31, 32, 0x22)},
+                               {0x01, voice(0, 0x33)}, {0x40, owned(12, 0, 5)}, {0x40, owned(9, 0, 5)}});
         SequenceBlock s;
         std::string err;
         CHECK(load(b, s, err));
@@ -259,11 +261,12 @@ int main() {
         CHECK(s.seqVoice(Device::OPL3, 0) == &s.voices[0]);
         CHECK(s.seqVoice(Device::SCC, 1) == nullptr);
     }
-    CHECK(!loads(block({{0x40, owned(3, 0, 32)}})));    // デバイス 0-8 は名指せない
-    CHECK(!loads(block({{0x40, owned(5, 0, 32)}})));    // チップの無い 4-7 も ROM の読み手と同じく拒む
+    CHECK(!loads(block({{0x40, owned(3, 0, 32)}})));    // デバイス 0-3 と 8 は名指せない
     CHECK(!loads(block({{0x40, owned(8, 0, 32)}})));
-    CHECK(!loads(block({{0x40, owned(9, 32, 32)}})));   // 索引は 0-31
-    CHECK(!loads(block({{0x40, owned(9, 0, 31)}})));
+    CHECK(loads(block({{0x40, owned(5, 0, 32)}})));     // チップの無い 5-7 と 9 は、ROM の読み手と同じく読み飛ばす
+    CHECK(loads(block({{0x40, owned(9, 0, 32)}})));
+    CHECK(!loads(block({{0x40, owned(4, 32, 32)}})));   // 索引は 0-31
+    CHECK(!loads(block({{0x40, owned(4, 0, 31)}})));
     CHECK(!loads(block({{0x40, Bytes{}}})));            // デバイス番号が無い
 
     // チャンク 41（ADPCM-A のサンプル）
@@ -276,7 +279,8 @@ int main() {
         CHECK(s.adpcmA[255].present && s.adpcmA[255].startPage == 0x0102 && s.adpcmA[255].pages == 3);
         CHECK(!s.adpcmA[1].present);                    // OPNB のものだけを持つ
     }
-    CHECK(!loads(block({{0x41, Bytes{5, 0, 0, 0, 1, 0}}})));
+    CHECK(!loads(block({{0x41, Bytes{4, 0, 0, 0, 1, 0}}})));
+    CHECK(loads(block({{0x41, Bytes{5, 0, 0, 0, 1, 0}}})));
     CHECK(!loads(block({{0x41, Bytes{11, 0, 0, 0, 1}}})));
     CHECK(loads(block({{0x41, Bytes{12, 0, 0, 0}}})));  // 鳴らさないデバイスのものは中身を見ない
 
@@ -287,12 +291,14 @@ int main() {
         CHECK(load(block({{0x42, owned(8, 5, 24, 0x44)}}), s, err));
         CHECK(s.voices[5].kind == RecordKind::Fm4op && s.voices[5].data[23] == 0x44);
     }
-    CHECK(!loads(block({{0x42, owned(9, 5, 24)}})));
+    CHECK(!loads(block({{0x42, owned(4, 5, 24)}})));
+    CHECK(loads(block({{0x42, owned(9, 5, 24)}})));
     CHECK(!loads(block({{0x42, owned(8, 32, 24)}})));
     CHECK(!loads(block({{0x42, owned(8, 5, 23)}})));
 
     // 鳴らすデバイスについて知らない種別は拒み、鳴らさないデバイスのものは読み飛ばす
-    CHECK(!loads(block({{0x43, Bytes{9, 0}}})));
+    CHECK(!loads(block({{0x43, Bytes{4, 0}}})));
+    CHECK(loads(block({{0x43, Bytes{9, 0}}})));
     CHECK(loads(block({{0x43, Bytes{12, 0}}})));
 
     // チャンク 80（メタ情報）。知らない項目は飛ばし、壊れていても拒まない

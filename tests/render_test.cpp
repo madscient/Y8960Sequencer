@@ -498,9 +498,9 @@ int main() {
             SequenceBlock b;
             b.version = 1;
             b.voices[0] = (c.channel == 18) ? fmVoice4op() : sine2op;
-            b.deviceVoices[static_cast<size_t>(Device::OPNB) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
-            b.deviceVoices[static_cast<size_t>(Device::OPNA) - static_cast<size_t>(Device::OPM)][0] = sineOpn();
-            b.deviceVoices[0][0] = sineOpn();
+            for (Device d : {Device::OPM, Device::OPNA, Device::OPNB}) {
+                b.deviceVoices[voiceSetIndex(d)][0] = sineOpn();
+            }
             // 左端（1）に置く。右が黙っていれば `87` がチップの左右に届いている。
             addTrack(b, 0, c.device, c.channel, {0x85, 0x00, 0x87, 0x01, 0x80, 4, 0x09, 96});
             const Stereo out = renderFresh(b, kRate / 2);

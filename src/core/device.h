@@ -80,7 +80,7 @@ public:
     }
 };
 
-// 鳴らすデバイスぶんのドライバ。4-7 の枠は空。
+// 鳴らすデバイスぶんのドライバ。5-7 と 9 の枠は空。
 class DeviceSet {
 public:
     explicit DeviceSet(ChipBus& bus);

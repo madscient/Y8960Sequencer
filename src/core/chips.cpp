@@ -11,8 +11,7 @@ namespace {
 
 // Y8960 の各ブロックのクロックは MSX 標準と同じ（Y8960BasicExtension の
 // doc/hardware.md「搭載音源」）。DSAemuEngine の SSGS が受け取るのは SSG の動作クロック。
-// デバイス 8-11 のクロックは Y8SQ 形式が決めていないので、各チップの標準のもの
-// （pitch.h）。音の高さの計算も同じ値を使う。
+// OPM とデバイス 8・10・11 のクロックは pitch.h に置き、音の高さの計算も同じ値を使う。
 constexpr uint32_t kClockMsx  = 3579545;
 constexpr uint32_t kClockSsgs = 1789772;
 

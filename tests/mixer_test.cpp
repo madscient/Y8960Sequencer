@@ -22,9 +22,10 @@ bool parses(const std::string& text) {
 int main() {
     {
         MixerLevels m;
-        CHECK(parses("100,0,64,128,1", m));
+        CHECK(parses("100,0,64,128,1,32", m));
         CHECK(m.master == 100);
-        CHECK(m.blocks[0] == 0 && m.blocks[1] == 64 && m.blocks[2] == 128 && m.blocks[3] == 1);
+        CHECK(m.blocks[0] == 0 && m.blocks[1] == 64 && m.blocks[2] == 128 && m.blocks[3] == 1 &&
+              m.blocks[4] == 32);
     }
     {
         // 既定はすべて 128。
@@ -33,14 +34,14 @@ int main() {
         for (uint8_t v : m.blocks) CHECK(v == 128);
     }
     CHECK(!parses(""));
-    CHECK(!parses("128,128,128,128"));          // CALL MIXER と同じく5つとも要る
-    CHECK(!parses("128,128,128,128,128,128"));
-    CHECK(!parses("129,0,0,0,0"));
-    CHECK(!parses("0,0,0,0,-1"));
-    CHECK(!parses("0,,0,0,0"));
-    CHECK(!parses("0,0,0,0,0,"));
-    CHECK(!parses("0,0,0,0,1000"));
-    CHECK(!parses(" 0,0,0,0,0"));
+    CHECK(!parses("128,128,128,128,128"));      // CALL MIXER と同じく6つとも要る
+    CHECK(!parses("128,128,128,128,128,128,128"));
+    CHECK(!parses("129,0,0,0,0,0"));
+    CHECK(!parses("0,0,0,0,0,-1"));
+    CHECK(!parses("0,,0,0,0,0"));
+    CHECK(!parses("0,0,0,0,0,0,"));
+    CHECK(!parses("0,0,0,0,0,1000"));
+    CHECK(!parses(" 0,0,0,0,0,0"));
 
     // 線形の利得。128 が素通し、0 が無音。
     CHECK(mixerGain(128) == 1.0f);

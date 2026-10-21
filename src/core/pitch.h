@@ -1,7 +1,8 @@
 #pragma once
 // 音符番号とベンドから、チップに書く値を出す。
-// OPL 系と分周器系は Y8960BasicExtension の src/dev/fnum.asm の写し。デバイス 8-11 の
-// ものは ROM に無いので、平均律（O4 A が 440Hz）から直接計算する。
+// OPL 系と分周器系は Y8960BasicExtension の src/dev/fnum.asm の写し。OPM とデバイス 8・10・11
+// は平均律（O4 A が 440Hz）から直接計算する。OPM は ROM の src/dev/opm.asm も表を持たずに計算し、
+// 式は同じ（コードを読んで突き合わせた。走らせて比べてはいない）。
 
 #include "block.h"
 #include "freqtab.h"
@@ -28,7 +29,8 @@ struct DivPitch {
 
 DivPitch divPitch(Device device, uint8_t note, int16_t bendSteps);
 
-// デバイス 8-11 のクロック。Y8SQ 形式は決めていないので、各チップの標準のもの。
+// OPM はカートリッジのクロック（Y8960BasicExtension の doc/hardware.md「搭載音源」）。
+// デバイス 8・10・11 は Y8SQ 形式が決めていないので、各チップの標準のもの。
 constexpr uint32_t kClockOpl3 = 14318180;   // 2OP の F-Number は OPL2 と同じになる
 constexpr uint32_t kClockOpm  = 3579545;
 constexpr uint32_t kClockOpna = 7987200;

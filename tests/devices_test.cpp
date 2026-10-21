@@ -407,6 +407,30 @@ int main() {
         CHECK(r.bus.last(d, 0x37) == (32 << 2));   // 50 セントは 32/64 半音
     }
 
+    // OPM で ROM の opm.asm に合わせたもの。`Y` で変えた接続に音量が従う、14h は断る、
+    // `85` の前のキーオンはどのオペレータも鳴らさない、リセットの値。
+    {
+        Rig r;
+        SequenceBlock b;
+        b.deviceVoices[0][0] = opnVoice(0x04, 0, 0xF0);       // AL 4。キャリアは C1 と C2
+        addTrack(b, 0, Device::OPM, 0, {0x85, 0, 0xE0, 0x20, 0x07, 0xF8, 0x81, 37,
+                                        0xE0, 0x14, 0x8F, 0x00, 0x00, 24});
+        addTrack(b, 1, Device::OPM, 1, {0x00, 24});
+        r.play(b, kEighth);
+        const Device d = Device::OPM;
+        CHECK(r.bus.last(d, 0x20) == 0xC7);
+        CHECK(r.bus.last(d, 0x60) == 0x10 + 90);   // AL 7 にしたので M1 と M2 にも足す
+        CHECK(r.bus.last(d, 0x68) == 0x12 + 90);
+        CHECK(r.bus.last(d, 0x70) == 0x11 + 90);
+        CHECK(r.bus.last(d, 0x78) == 0x13 + 90);
+        CHECK(r.bus.values(d, 0x14) == (std::vector<uint8_t>{0x30}));
+        CHECK(r.bus.count(d, 0x08, 0x01) >= 1);    // チャンネル 1 はキーのビットが無い
+        for (uint8_t v = 0x09; v <= 0x7F; v = static_cast<uint8_t>(v + 8)) {
+            CHECK(r.bus.count(d, 0x08, v) == 0);
+        }
+        CHECK(r.bus.last(d, 0xE1) == 0x0F);
+    }
+
     // OPNA の FM。チャンネル 3-5 は2組目、キーオンは 28h の 4 から。上位を先に書く。
     {
         Rig r;

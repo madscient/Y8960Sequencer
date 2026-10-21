@@ -9,29 +9,29 @@
 
 namespace y8960 {
 
-// 値は形式のデバイス番号そのもの。4-7 はどのチップにも割り当てられていない。
+// 値は形式のデバイス番号そのもの。5-7 と 9 はどのチップにも割り当てられていない。
 enum class Device : uint8_t {
     SSGS   = 0,
     OPLLEX = 1,
     OPL2EX = 2,
     SCC    = 3,
+    OPM    = 4,
     OPL3   = 8,
-    OPM    = 9,
     OPNA   = 10,
     OPNB   = 11,
 };
 
-// デバイス番号で引く配列の大きさ。4-7 の枠は空いたまま使わない ―― 番号を詰めると、
+// デバイス番号で引く配列の大きさ。5-7 と 9 の枠は空いたまま使わない ―― 番号を詰めると、
 // 形式の番号との変換があちこちに要る。
 constexpr int kDeviceCount   = 12;
 // このプレイヤーが鳴らすデバイス。番号の順。
 constexpr std::array<Device, 8> kDevices = {
     Device::SSGS, Device::OPLLEX, Device::OPL2EX, Device::SCC,
-    Device::OPL3, Device::OPM,    Device::OPNA,   Device::OPNB,
+    Device::OPM,  Device::OPL3,   Device::OPNA,   Device::OPNB,
 };
-// 形式のデバイス番号のうち、このプレイヤーが鳴らすもの。4-7 と 12 以上は鳴らさない。
+// 形式のデバイス番号のうち、このプレイヤーが鳴らすもの。5-7、9、12 以上は鳴らさない。
 constexpr bool isPlayedDevice(unsigned number) {
-    return number < 4 || (number >= 8 && number < static_cast<unsigned>(kDeviceCount));
+    return number <= 4 || number == 8 || number == 10 || number == 11;
 }
 constexpr int kMaxChannels   = 25;     // OPL3 の 0-24
 constexpr int kTrackCount    = 16;
@@ -70,8 +70,10 @@ bool isRhythmChannel(Device device, uint8_t channel);
 int rhythmInstruments(Device device);
 // ボイスファイルを鳴らす ADPCM チャンネル（OPL2EX の ADPCM と OPNA・OPNB の ADPCM-B）。
 bool isAdpcmChannel(Device device, uint8_t channel);
-// デバイス 9-11 は自分の音色集合を持つ（チャンク 40）。
+// デバイス 4・10・11 は自分の音色集合を持つ（チャンク 40）。
 bool ownsVoiceSet(Device device);
+// 自分の音色集合を持つデバイスの、SequenceBlock::deviceVoices での位置。
+size_t voiceSetIndex(Device device);
 
 struct TrackData {
     bool                 assigned = false;
@@ -116,9 +118,9 @@ struct EnvelopeRecord {
 struct SequenceBlock {
     uint8_t                                   version = 0;
     std::array<TrackData, kTrackCount>        tracks{};
-    // デバイス 0-8 が共有する集合。0-31 が `85` の指す音色、32-34 がリズム音色。
+    // デバイス 0-3 と 8 が共有する集合。0-31 が `85` の指す音色、32-34 がリズム音色。
     std::array<VoiceRecord, kVoiceSlots>      voices{};
-    // デバイス 9-11（OPM・OPNA・OPNB）がそれぞれ持つ集合。
+    // OPM・OPNA・OPNB がそれぞれ持つ集合。この順に並ぶ（voiceSetIndex）。
     std::array<std::array<VoiceRecord, kVoiceSetSize>, 3> deviceVoices{};
     std::array<AdpcmVoiceFile, kAdpcmFiles>   adpcm{};
     std::array<AdpcmASample, kAdpcmASamples>  adpcmA{};   // OPNB のもの

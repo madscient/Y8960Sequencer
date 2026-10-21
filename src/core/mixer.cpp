@@ -8,7 +8,7 @@ float mixerGain(uint8_t level) {
 }
 
 bool parseMixer(const std::string& text, MixerLevels& out, std::string& error) {
-    constexpr size_t kFields = 5;
+    constexpr size_t kFields = 6;
     std::array<uint8_t, kFields> values{};
     size_t field = 0;
     size_t pos = 0;
@@ -22,7 +22,7 @@ bool parseMixer(const std::string& text, MixerLevels& out, std::string& error) {
             return false;
         }
         if (field == kFields) {
-            error = "needs 5 levels (master, SSGS, OPLLEX, OPL2EX, SCC): " + text;
+            error = "needs 6 levels (master, SSGS, OPLLEX, OPL2EX, SCC, OPM): " + text;
             return false;
         }
         values[field++] = static_cast<uint8_t>(std::stoi(v));
@@ -30,7 +30,7 @@ bool parseMixer(const std::string& text, MixerLevels& out, std::string& error) {
         pos = comma + 1;
     }
     if (field != kFields) {
-        error = "needs 5 levels (master, SSGS, OPLLEX, OPL2EX, SCC): " + text;
+        error = "needs 6 levels (master, SSGS, OPLLEX, OPL2EX, SCC, OPM): " + text;
         return false;
     }
     out.master = values[0];

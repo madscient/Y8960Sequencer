@@ -37,8 +37,8 @@ constexpr ImU32 kRedLit    = IM_COL32(235,  70,  60, 255);
 constexpr ImU32 kRedDim    = IM_COL32( 58,  22,  20, 255);
 
 const char* const kBandNames[kDeviceCount] = {
-    "SSGS", "OPLLEX", "OPL2EX", "SCC", nullptr, nullptr, nullptr, nullptr,
-    "OPL3", "OPM", "OPNA", "OPNB",
+    "SSGS", "OPLLEX", "OPL2EX", "SCC", "OPM", nullptr, nullptr, nullptr,
+    "OPL3", nullptr, "OPNA", "OPNB",
 };
 
 // SSGS は2つの SSG からできているので、セット番号とその中の名前で呼ぶ。

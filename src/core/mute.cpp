@@ -6,10 +6,10 @@ namespace y8960 {
 
 namespace {
 
-// 4-7 はチップが無いので名前も無い。
+// 5-7 と 9 はチップが無いので名前も無い。
 const char* const kSymbols[kDeviceCount] = {
-    "SSGS", "OPLLEX", "OPL2EX", "SCC", nullptr, nullptr, nullptr, nullptr,
-    "OPL3", "OPM", "OPNA", "OPNB",
+    "SSGS", "OPLLEX", "OPL2EX", "SCC", "OPM", nullptr, nullptr, nullptr,
+    "OPL3", nullptr, "OPNA", "OPNB",
 };
 
 std::string upper(std::string s) {

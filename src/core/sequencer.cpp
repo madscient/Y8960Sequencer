@@ -373,7 +373,7 @@ bool Sequencer::event(Sequence& s, Track& t, int index, uint8_t op) {
         case kEvVoice:    t.voice = arg; device(t).setVoice(t.channel, arg); break;
         case kEvSeqVoice: {
             t.voice = arg;
-            // デバイス 9-11 は自分の集合を、ほかは共有の集合を名指す。
+            // OPM・OPNA・OPNB は自分の集合を、ほかは共有の集合を名指す。
             const VoiceRecord* rec = s.block ? s.block->seqVoice(t.device, arg) : nullptr;
             if (rec) device(t).seqVoice(t.channel, arg, *rec);
             break;

@@ -154,11 +154,19 @@ bool ownsVoiceSet(Device device) {
     return device == Device::OPM || device == Device::OPNA || device == Device::OPNB;
 }
 
+size_t voiceSetIndex(Device device) {
+    switch (device) {
+    case Device::OPNA: return 1;
+    case Device::OPNB: return 2;
+    default:           return 0;
+    }
+}
+
 const VoiceRecord* SequenceBlock::seqVoice(Device device, uint8_t index) const {
     const VoiceRecord* rec = nullptr;
     if (ownsVoiceSet(device)) {
         if (index < kVoiceSetSize) {
-            rec = &deviceVoices[static_cast<size_t>(device) - static_cast<size_t>(Device::OPM)][index];
+            rec = &deviceVoices[voiceSetIndex(device)][index];
         }
     } else if (index < kVoiceSlots) {
         rec = &voices[index];
@@ -231,7 +239,7 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 return false;
             }
             // 鳴らさないデバイスのトラックは割り当てず、残りを鳴らす（bytecode.md
-            // 「版と、知らないものに出会ったとき」）。チップの無い 4-7 と、形式がまだ
+            // 「版と、知らないものに出会ったとき」）。チップの無い 5-7 と 9、形式がまだ
             // 名前を付けていない番号も同じ扱い。
             if (!isPlayedDevice(dev)) {
                 out.warnings.push_back("track " + std::to_string(trackNo) + ": device " +
@@ -313,8 +321,7 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                 return false;
             }
             const uint8_t dev = p[0];
-            // 4-7 は鳴らさないが、ROM の読み手と同じく下で拒む。
-            if (dev >= kDeviceCount) continue;
+            if (!isPlayedDevice(dev)) continue;
             const Device device = static_cast<Device>(dev);
             if (type == kChunkOpnVoice) {
                 if (!ownsVoiceSet(device)) {
@@ -329,12 +336,12 @@ bool parseBlock(const uint8_t* data, size_t size, SequenceBlock& out, std::strin
                     error = "voice index " + std::to_string(p[1]) + " is out of range";
                     return false;
                 }
-                VoiceRecord& v = out.deviceVoices[dev - static_cast<size_t>(Device::OPM)][p[1]];
+                VoiceRecord& v = out.deviceVoices[voiceSetIndex(device)][p[1]];
                 v.kind = RecordKind::OpnVoice;
                 std::memcpy(v.data.data(), p + 2, kOpnVoiceSize);
             } else if (type == kChunkAdpcmA) {
-                // ADPCM-A を持つのは OPNB だけ。ほかのデバイス 8-10 のものは鳴るものを
-                // 変えないので受け取って捨てる。デバイス 0-7 のものは ROM の読み手と
+                // ADPCM-A を持つのは OPNB だけ。ほかのデバイス 8・10 のものは鳴るものを
+                // 変えないので受け取って捨てる。デバイス 0-4 のものは ROM の読み手と
                 // 同じく拒む（形式は拒んでも読み飛ばしてもよいとする）。
                 if (dev < static_cast<uint8_t>(Device::OPL3)) {
                     error = "chunk 41h names device " + std::to_string(dev);

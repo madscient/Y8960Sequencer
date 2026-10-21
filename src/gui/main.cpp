@@ -36,8 +36,8 @@ constexpr float    kFadeSeconds   = 5.0f;
 constexpr float    kPlaylistWidth = 300.0f;
 
 const char* const kDeviceNames[y8960::kDeviceCount] = {
-    "SSGS", "OPLLEX", "OPL2EX", "SCC", nullptr, nullptr, nullptr, nullptr,
-    "OPL3", "OPM", "OPNA", "OPNB",
+    "SSGS", "OPLLEX", "OPL2EX", "SCC", "OPM", nullptr, nullptr, nullptr,
+    "OPL3", nullptr, "OPNA", "OPNB",
 };
 
 const char* const kTickNames[] = {"VDP 60Hz", "VDP 50Hz", "MSX-TIMER 100Hz", "MSX-TIMER 200Hz"};

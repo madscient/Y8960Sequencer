@@ -64,11 +64,11 @@ void printUsage() {
                "            0 = about 60Hz, 1 = about 100Hz, 2 = about 200Hz (default 2)\n"
                "  --repeat  times to play the song, as CALL MSTART; 0 = endless (default 1)\n"
                "  --mute    silence a part; may be given more than once\n"
-               "              <chip>[,<channel>]  chip: SSGS OPLLEX OPL2EX SCC OPL3 OPM OPNA OPNB\n"
+               "              <chip>[,<channel>]  chip: SSGS OPLLEX OPL2EX SCC OPM OPL3 OPNA OPNB\n"
                "              T<number>           track 0-15\n"
                "              A-P                 track 0-15 as a letter\n"
                "            prefix with ! to silence everything else\n"
-               "  --mixer   block levels, as CALL MIXER: <master>,<SSGS>,<OPLLEX>,<OPL2EX>,<SCC>\n"
+               "  --mixer   block levels, as CALL MIXER: <master>,<SSGS>,<OPLLEX>,<OPL2EX>,<SCC>,<OPM>\n"
                "            each 0-128; 128 is full, 0 is silent, linear between (default all 128)\n"
                "  --wav     write a WAV file (48000Hz, 16bit, stereo) instead of playing;\n"
                "            cannot be combined with --repeat 0\n", stderr);
@@ -138,7 +138,7 @@ bool parseOptions(const std::vector<fs::path>& args, Options& opt) {
             opt.mutes.push_back(spec);
         } else if (a == "--mixer") {
             if (i + 1 >= args.size()) {
-                std::fputs("--mixer needs five levels\n", stderr);
+                std::fputs("--mixer needs six levels\n", stderr);
                 return false;
             }
             std::string why;

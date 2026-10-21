@@ -29,7 +29,7 @@ inline uint8_t volumeStep(uint8_t loudness) {
 }
 
 // `87` の値を、左右の出力を入れるか切るかしか選べないチップ向けに丸める
-// （bytecode.md「パンポット」の表）。0 は中央。
+// （bytecode.md「パンポット」の表）。0 は形式が意味を定めない値で、ここでは中央にする。
 enum class PanSide : uint8_t { Left, Both, Right };
 inline PanSide panSide(uint8_t value) {
     if (value == 0 || (value > 64 && value < 192)) return PanSide::Both;

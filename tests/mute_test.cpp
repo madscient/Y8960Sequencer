@@ -54,7 +54,7 @@ int main() {
         CHECK(parses("!SSGS,3", s) && s.except && s.kind == MuteSpec::Kind::Channel);
         CHECK(parses("!T3", s) && s.except && s.track == 3);
         CHECK(parses("!C", s) && s.except && s.track == 2);
-        // デバイス 8-11
+        // OPM とデバイス 8・10・11
         CHECK(parses("opl3,24", s) && s.device == Device::OPL3 && s.channel == 24);
         CHECK(parses("OPM", s) && s.kind == MuteSpec::Kind::Chip && s.device == Device::OPM);
         CHECK(parses("OPNA,10", s) && s.device == Device::OPNA && s.channel == 10);
