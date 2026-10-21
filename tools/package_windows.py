@@ -28,6 +28,11 @@ THIRD_PARTY = [
     ("DSAemuEngine", "extern/emu76489/LICENSE", "emu76489.txt"),
     ("DSAemuEngine", "extern/emu8950/LICENSE", "emu8950.txt"),
 ]
+# 上流がライセンス文のファイルを持たない同梱物。クレジットと配布元の URL だけを
+# このリポジトリに置いて渡す。
+CREDITS = [
+    ("tools/credits/OPLLx-ROM-patches.txt", "OPLLx-ROM-patches.txt"),
+]
 STATIC_CRT = "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
 
 
@@ -78,6 +83,7 @@ def main():
     # 同梱物のライセンス文は、ビルドに時間を使う前に揃っていることを見る。
     missing = [name for name in EMULATORS if not (root / name / "LICENSE").is_file()]
     missing += [f"{name}/{src}" for name, src, _ in THIRD_PARTY if not (root / name / src).is_file()]
+    missing += [src for src, _ in CREDITS if not (repo / src).is_file()]
     if missing:
         sys.exit("license text not found: " + ", ".join(missing))
 
@@ -118,6 +124,8 @@ def main():
         files[f"licenses/{name}.txt"] = root / name / "LICENSE"
     for name, src, dst in THIRD_PARTY:
         files[f"licenses/{dst}"] = root / name / src
+    for src, dst in CREDITS:
+        files[f"licenses/{dst}"] = repo / src
     deps = out / "player" / "_deps"
     files["licenses/SDL3.txt"] = deps / "sdl3-src" / "LICENSE.txt"
     files["licenses/DearImGui.txt"] = deps / "imgui-src" / "LICENSE.txt"
