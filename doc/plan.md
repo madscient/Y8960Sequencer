@@ -671,8 +671,8 @@ openMSX_Y8960 の設定値は参考になるが、実機の資料ではない。
     作業ツリーを使う版にしてから走らせる（このときは利用者が DSAemuEngine を pull した）
     - 配布用のビルドで試験15本が通る（**確認済み**）
     - zip に `licenses/OPLLx-ROM-patches.txt` が入る（**確認済み**：展開して読んだ）
-    - 展開した zip の CLI で、手元の3曲（YSENDING・DANCING・REDMONT。`../Y8960mmlwork/` にあった。
-      上の 10-21 の項目の「見当たらず」は探し漏れ）を WAV に書き出し、開発用の Release ビルドの出力と
+    - 展開した zip の CLI で、手元の3曲（YSENDING・DANCING・REDMONT。`../Y8960mmlwork/`。
+      上の 10-21 の項目の「見当たらず」は、そのとき使ったマシンに無かったため）を WAV に書き出し、開発用の Release ビルドの出力と
       バイト単位で一致した（**確認済み**）。3曲は OPLLEX だけなので、DLL の版の違いはこの比較に出ない
     - 実行ファイル2つと DLL 2つが VC++ のランタイムに依存しない（**確認済み**：dumpbin `/dependents`）
     - zip の GUI は起動していない（**未検証**）
