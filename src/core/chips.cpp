@@ -30,7 +30,7 @@ constexpr Spec kSpecs[] = {
     {Device::SSGS,    kDsa,  "SSGS",   kClockSsgs},
     {Device::OPLLEX,  kDsa,  "OPLLEX", kClockMsx},
     {Device::OPL2EX,  kDsa,  "OPL2EX", kClockMsx},
-    {Device::SCC,     kDsa,  "SCC",    kClockMsx},
+    {Device::SCC,     kDsa,  "SCCEX",  kClockMsx},
     {Device::OPL3,    kYmfm, "OPL3",   kClockOpl3},
     {Device::OPM,     kYmfm, "OPM",    kClockOpm},
     {Device::OPNA,    kYmfm, "OPNA",   kClockOpna},

@@ -486,6 +486,7 @@ int main() {
         const Case cases[] = {
             {"SSGS ch0", Device::SSGS, 0, true},  {"SSGS ch4", Device::SSGS, 4, true},
             {"OPLLEX ch0", Device::OPLLEX, 0, true}, {"OPL2EX ch0", Device::OPL2EX, 0, true},
+            {"SCC ch0", Device::SCC, 0, true},    {"SCC ch4", Device::SCC, 4, true},
             {"OPL3 ch0", Device::OPL3, 0, true},  {"OPL3 ch9", Device::OPL3, 9, true},
             {"OPL3 ch18", Device::OPL3, 18, true},
             {"OPM ch0", Device::OPM, 0, true},
@@ -498,6 +499,7 @@ int main() {
             SequenceBlock b;
             b.version = 1;
             b.voices[0] = (c.channel == 18) ? fmVoice4op() : sine2op;
+            if (c.device == Device::SCC) b.voices[0] = sccWave();
             for (Device d : {Device::OPM, Device::OPNA, Device::OPNB}) {
                 b.deviceVoices[voiceSetIndex(d)][0] = sineOpn();
             }

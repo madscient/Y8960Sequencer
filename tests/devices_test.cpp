@@ -277,6 +277,21 @@ int main() {
         CHECK(got == want);
     }
 
+    // SCC の `87` は port 1 の 00h-04h へ、0 も含めて値のまま。リセットで中央。`E8` は届かない。
+    {
+        Rig r;
+        SequenceBlock b;
+        addTrack(b, 0, Device::SCC, 0, {0x87, 0, 0x87, 1, 0x87, 255, 0xE8, 0x00, 0x40, 0x00, 0x00, 24});
+        addTrack(b, 1, Device::SCC, 4, {0x87, 64, 0x00, 24});
+        r.play(b, 2);
+        CHECK(r.bus.values(Device::SCC, 0x00, 1) == (std::vector<uint8_t>{128, 0, 1, 255}));
+        CHECK(r.bus.values(Device::SCC, 0x04, 1) == (std::vector<uint8_t>{128, 64}));
+        for (uint8_t ch = 1; ch <= 3; ++ch) {
+            CHECK(r.bus.values(Device::SCC, ch, 1) == (std::vector<uint8_t>{128}));
+        }
+        CHECK(r.bus.values(Device::SCC, 0x05, 1).empty());
+    }
+
     // SCC の `B3`。0 は表を通さず、周の頭で表に戻る。
     {
         Rig r;

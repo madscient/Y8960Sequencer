@@ -208,5 +208,28 @@ int main() {
         CHECK(zero.l < left.l * 0.01);
     }
 
+    // SCC の定位は port 1 の 00h-04h（実機の 9900h-9904h）。リセットの直後は中央。
+    {
+        sccNote(chips, true);
+        const StereoRms centre = stereoRms(chips, kRate / 5);
+        chips.write(Device::SCC, 0x00, 1, 1);              // チャンネル A を左端
+        const StereoRms left = stereoRms(chips, kRate / 5);
+        chips.write(Device::SCC, 0x00, 255, 1);
+        const StereoRms right = stereoRms(chips, kRate / 5);
+        chips.write(Device::SCC, 0x01, 1, 1);              // ほかのチャンネルでは変わらない
+        const StereoRms other = stereoRms(chips, kRate / 5);
+        chips.write(Device::SCC, 0x00, 128, 1);
+        sccNote(chips, false);
+        rms(chips, kRate / 2);
+        std::printf("SCC      centre L=%.4f R=%.4f  left L=%.4f R=%.4f  right L=%.4f R=%.4f\n",
+                    centre.l, centre.r, left.l, left.r, right.l, right.r);
+        CHECK(centre.l > 0.003);
+        CHECK(std::fabs(centre.l - centre.r) < centre.l * 0.01);
+        CHECK(left.r < left.l * 0.01);
+        CHECK(std::fabs(left.l / centre.l - std::sqrt(2.0)) < 0.05);
+        CHECK(right.l < right.r * 0.01);
+        CHECK(std::fabs(other.r - right.r) < right.r * 0.01 && other.l < other.r * 0.01);
+    }
+
     return check::finish("chips_test");
 }

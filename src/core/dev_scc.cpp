@@ -3,6 +3,10 @@
 // チップは波形表を持たず、チャンネルごとに1つの波形を持つ。だから音色を選ぶとは
 // 32バイトを書き写すことで、載っている波形が変わらないチャンネルは写さない。
 // チャンネル3と4は最後のブロックを分け合う。
+//
+// 定位（`87`）は Y8960 の追加で、SCC のレジスタ窓の外の 9900h-9904h にある。チップには
+// port 1 のレジスタ 00h-04h として書く（DSAemuEngine の SCCEX の約束）。書き込み専用で
+// 控えを持たず、`Y` からは届かない（ROM の SCCPAN と同じ）。
 
 #include "dev_internal.h"
 #include "pitch.h"
@@ -19,6 +23,8 @@ constexpr uint8_t kOffFreq    = 0x80;
 constexpr uint8_t kOffVol     = 0x8A;
 constexpr uint8_t kOffEnable  = 0x8F;
 constexpr uint8_t kVolMax     = 15;
+constexpr uint8_t kPanPort    = 1;
+constexpr uint8_t kPanCentre  = 128;
 
 // PSG の目盛り（1段が数 dB）の 0-15 を、振幅に比例する SCC の音量に直す（SCCVOLTAB）。
 // 1-15 は tiny-yarou.com の「SCC for BASIC」の PSG→SCC 表で、0 は表に無いので無音。
@@ -46,6 +52,7 @@ public:
         wave_.fill(kSavNone);
         vol_.fill(0);
         linear_ = 0;
+        for (uint8_t ch = 0; ch < kChannels; ++ch) setPan(ch, kPanCentre);
         env_.resetDevice(Device::SCC);
     }
 
@@ -103,6 +110,12 @@ public:
     }
 
     void rewindChannel(uint8_t ch) override { setVolumeTable(ch, true); }
+
+    // 0 も含め、値をそのまま書く（ROM と同じ）。
+    void setPan(uint8_t ch, uint8_t value) override {
+        if (ch >= kChannels) return;
+        bus_.write(Device::SCC, ch, value, kPanPort);
+    }
 
     bool regRead(uint8_t port, uint8_t reg, uint8_t& value) override {
         if (port != 0) return false;

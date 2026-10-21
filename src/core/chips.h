@@ -17,8 +17,8 @@
 namespace y8960 {
 
 // ドライバがチップに書く口。チップの並びはデバイス番号と同じ。
-//   SCC : reg は SCC のレジスタ窓の先頭からのオフセット
-//   port: 2組のレジスタを持つチップ（OPL3・OPNA・OPNB）の2組目が 1
+//   SCC : reg は SCC のレジスタ窓の先頭からのオフセット。port 1 の 00h-04h はチャンネルの定位
+//   port: 2組のレジスタを持つチップ（OPL3・OPNA・OPNB）の2組目が 1。SCC は上のとおり
 class ChipBus {
 public:
     virtual ~ChipBus() = default;
